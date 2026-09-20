@@ -169,8 +169,6 @@ func zipEntry(zr *zip.ReadCloser, base string) *zip.File {
 	return nil
 }
 
-// removeWithRetry 删除目录，Windows 上 go-plugin Kill 后可能短暂持有文件锁。
-// 重试 3 次，每次间隔 200ms。
 func removeWithRetry(path string) error {
 	var err error
 	for i := 0; i < 3; i++ {

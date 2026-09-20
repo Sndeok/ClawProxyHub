@@ -193,10 +193,9 @@ func (s *Server) createGroup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"id": g.ID})
 }
 
-// deleteGroup DELETE /admin/groups/{id} — 同时清理路由引用、降级配置与账号/代理关联。
+// deleteGroup DELETE /admin/groups/{id}
 func (s *Server) deleteGroup(w http.ResponseWriter, r *http.Request) {
 	id := parseInt(r.PathValue("id"))
-
 	tx := s.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -204,11 +203,10 @@ func (s *Server) deleteGroup(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// 1. 清理路由 groups_json 中对该分组的引用
 	var routes []model.Route
 	if err := tx.Find(&routes).Error; err != nil {
 		tx.Rollback()
-		http.Error(w, {"error":"db"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":"db"}`, http.StatusInternalServerError)
 		return
 	}
 	for _, rt := range routes {
@@ -234,24 +232,17 @@ func (s *Server) deleteGroup(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 2. 清理降级分组引用（failover_group_id 指向该分组的置空）
 	tx.Model(&model.Route{}).Where("failover_group_id = ?", id).Update("failover_group_id", nil)
-
-	// 3. 清理分组与账号的关联
 	tx.Where("group_id = ?", id).Delete(&model.AccountGroup{})
-
-	// 4. 清理分组与代理的关联
 	tx.Where("group_id = ?", id).Delete(&model.GroupProxy{})
 
-	// 5. 删除分组
 	if err := tx.Delete(&model.Group{}, id).Error; err != nil {
 		tx.Rollback()
-		http.Error(w, {"error":"delete failed"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":"delete failed"}`, http.StatusInternalServerError)
 		return
 	}
-
 	if err := tx.Commit().Error; err != nil {
-		http.Error(w, {"error":"commit failed"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":"commit failed"}`, http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})

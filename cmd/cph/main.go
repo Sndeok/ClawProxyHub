@@ -28,7 +28,6 @@ import (
 )
 
 // seedAPIKey 首次部署引导：环境变量指定 key，不存在则入库（加密存储）。
-// 用 SHA-256(raw) 做等值判重（AES-GCM 每次密文不同，不能用密文查重）。
 func seedAPIKey(db *gorm.DB, raw string, dataDir string) error {
 	sum := sha256.Sum256([]byte(raw))
 	hash := hex.EncodeToString(sum[:])

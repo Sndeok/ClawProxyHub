@@ -222,8 +222,6 @@ func (s *Service) Resume(accountID int64) {
 		})
 }
 
-
-
 // List 插件维度的账号列表（凭据不外泄）。
 func (s *Service) List(pluginID int64) ([]model.Account, error) {
 	var accts []model.Account

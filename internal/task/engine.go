@@ -269,8 +269,6 @@ func pluginNameByID(db *gorm.DB, id int64) string {
 	return p.Name
 }
 
-
-
 // ScheduleOnce 创建一条立即执行的 once 规则（手动触发/失败重跑都用它）。
 func (e *Engine) ScheduleOnce(pluginID int64, capabilityID string, accountID int64) error {
 	scope, target := "all", "[]"

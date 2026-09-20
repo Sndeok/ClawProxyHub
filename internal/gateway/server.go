@@ -18,8 +18,8 @@ import (
 
 	accountpkg "github.com/ShadowSmallBaby/ClawProxyHub/internal/account"
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/model"
-	"github.com/ShadowSmallBaby/ClawProxyHub/internal/router"
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/util"
+	"github.com/ShadowSmallBaby/ClawProxyHub/internal/router"
 	pb "github.com/ShadowSmallBaby/ClawProxyHub/sdk/proto/cphv1"
 )
 
@@ -155,13 +155,13 @@ func (s *Server) parseBody(w http.ResponseWriter, r *http.Request, parse func([]
 		writeJSON(w, http.StatusBadRequest, errBody("invalid body", err))
 		return nil, false
 	}
-	// 读完后检查是否还有剩余数据（无 Content-Length 的 chunked 请求）
 	if len(body) == 32<<20 {
 		if extra, _ := io.ReadAll(io.LimitReader(r.Body, 1)); len(extra) > 0 {
 			writeJSON(w, http.StatusRequestEntityTooLarge, errBody("invalid_request_error", fmt.Errorf("request body exceeds 32MB limit")))
 			return nil, false
 		}
 	}
+	req, err := parse(body)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errBody("invalid_request_error", err))
 		return nil, false
@@ -171,57 +171,51 @@ func (s *Server) parseBody(w http.ResponseWriter, r *http.Request, parse func([]
 
 // authorize 校验 Authorization / X-Api-Key，失败时已写响应。
 func (s *Server) authorize(w http.ResponseWriter, r *http.Request) (*model.Key, bool) {
-	raw := r.Header.Get("Authorization")
+	key := r.Header.Get("Authorization")
 	const prefix = "Bearer "
-	if len(raw) > len(prefix) && raw[:len(prefix)] == prefix {
-		raw = raw[len(prefix):]
+	if len(key) > len(prefix) && key[:len(prefix)] == prefix {
+		key = key[len(prefix):]
 	} else {
-		raw = r.Header.Get("X-Api-Key")
+		key = r.Header.Get("X-Api-Key")
 	}
-	if raw == "" {
+	if key == "" {
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return nil, false
 	}
-
 	// 快路径：SHA-256(raw) 等值索引（O(1)）
-	sum := sha256.Sum256([]byte(raw))
+	sum := sha256.Sum256([]byte(key))
 	hash := hex.EncodeToString(sum[:])
 	var k model.Key
-	if err := s.db.Where("key_hash = ? AND enabled = ?", hash, true).First(&k).Error; err == nil {
-		if k.ExpiresAt != nil && k.ExpiresAt.Before(time.Now()) {
+	if err := s.db.Where("key_hash = ? AND enabled = ?", hash, true).First(&k).Error; err != nil {
+		// 慢路径：存量 key_hash 为空的记录（旧版数据），全量解密比对并回填 hash
+		var keys []model.Key
+		s.db.Where("key_hash = ?", "").Find(&keys)
+		matched := false
+		for _, cand := range keys {
+			if keyMatches(cand.KeyCipher, key, s.dataDir) {
+				k = cand
+				matched = true
+				s.db.Model(&model.Key{}).Where("id = ?", cand.ID).Update("key_hash", hash)
+				break
+			}
+		}
+		if !matched {
 			w.Header().Set("WWW-Authenticate", "Bearer")
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "key expired"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return nil, false
 		}
-		return &k, true
 	}
-
-	// 慢路径：存量 key_hash 为空的记录（旧版数据），全量解密比对并回填 hash
-	var keys []model.Key
-	s.db.Where("key_hash = ?", "").Find(&keys)
-	for _, cand := range keys {
-		if keyMatches(cand.KeyCipher, raw, s.dataDir) {
-			k = cand
-			// 回填 hash 供下次快路径命中
-			s.db.Model(&model.Key{}).Where("id = ?", cand.ID).Update("key_hash", hash)
-			if !cand.Enabled {
-				w.Header().Set("WWW-Authenticate", "Bearer")
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-				return nil, false
-			}
-			if k.ExpiresAt != nil && k.ExpiresAt.Before(time.Now()) {
-				w.Header().Set("WWW-Authenticate", "Bearer")
-				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "key expired"})
-				return nil, false
-			}
-			return &k, true
-		}
+	if !k.Enabled {
+		w.Header().Set("WWW-Authenticate", "Bearer")
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+		return nil, false
 	}
-
-	w.Header().Set("WWW-Authenticate", "Bearer")
-	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-	return nil, false
+	if k.ExpiresAt != nil && k.ExpiresAt.Before(time.Now()) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "key expired"})
+		return nil, false
+	}
+	return &k, true
 }
 
 // keyMatches 校验请求密钥与存储密文是否匹配：双通道（加密格式解密比对 / 存量 sha256 hex）。
@@ -440,21 +434,14 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key *model.Key, r
 
 	attemptCtx, attemptCancel := context.WithCancel(r.Context())
 	defer attemptCancel()
-	// retryAttempt 清理旧流并创建新 context（防 goroutine 泄漏）
-	retryAttempt := func(events chan *pb.StreamEvent) {
-		attemptCancel()
-		if events != nil {
-			go drain(events) // 后台排空，让生产者 goroutine 能退出
-		}
-		attemptCtx, attemptCancel = context.WithCancel(r.Context())
-	}
 
 	for attempt := 0; ; attempt++ {
 		events, err := s.plugins.Chat(attemptCtx, req, pluginName, cred)
 		if err != nil {
 			// 通道级失败（插件崩溃等）按 5xx 类参与降级判定
 			if retry, _ := recoverFrom(502, attempt, err.Error()); retry {
-				retryAttempt(nil) // Chat 出错时 channel 为 nil
+				attemptCancel()
+				attemptCtx, attemptCancel = context.WithCancel(r.Context())
 				continue
 			}
 			failWith(http.StatusBadGateway, "upstream_error", err.Error())
@@ -471,7 +458,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key *model.Key, r
 				}
 			case <-time.After(timeout):
 				if retry, _ := recoverFrom(504, attempt, ""); retry {
-					retryAttempt(events)
+					go drain(events)
+					attemptCancel()
+					attemptCtx, attemptCancel = context.WithCancel(r.Context())
 					continue
 				}
 				failWith(http.StatusGatewayTimeout, "upstream_error",
@@ -482,13 +471,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key *model.Key, r
 		log.firstTokenMs = int32(time.Since(start).Milliseconds())
 		if first != nil {
 			if code := failedCode(first); code != 0 {
-				drain(events) // 消费剩余事件，让生产者退出
-				drainComplete := true
-				_ = drainComplete
 				brief := failedBrief(first)
 				retry, transient := recoverFrom(int(code), attempt, brief)
 				if retry {
-					retryAttempt(nil) // 已排空，只需换 context
+					go drain(events)
+					attemptCancel()
+					attemptCtx, attemptCancel = context.WithCancel(r.Context())
 					continue
 				}
 				finishUnrecovered(code, brief, transient)
@@ -501,10 +489,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key *model.Key, r
 			return
 		}
 		if code, brief := s.nonStreamOut(w, events, first, log, newAggregate(protocol, req.Model)); code != 0 {
-			// 聚合中途失败且响应未写：尝试恢复后重试（nonStreamOut 内部已 drain）
+			// 聚合中途失败且响应未写：尝试恢复后重试
 			retry, transient := recoverFrom(int(code), attempt, brief)
 			if retry {
-				retryAttempt(nil) // 已排空，只需换 context
 				continue
 			}
 			finishUnrecovered(code, brief, transient)
@@ -620,4 +607,9 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-
+func util.TruncStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
+}

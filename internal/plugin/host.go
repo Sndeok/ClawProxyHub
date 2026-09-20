@@ -22,21 +22,20 @@ type HostService struct {
 	pb.UnimplementedClawHostServer
 
 	db         *gorm.DB
-	pluginName atomic.Value // string，握手完成后设置
+	pluginName atomic.Value
 	mu         sync.RWMutex
-	stores     map[string]map[string][]byte // plugin name → key → value（内存缓存）
+	stores     map[string]map[string][]byte
 }
 
 func NewHostService(db *gorm.DB) *HostService {
 	return &HostService{db: db, stores: map[string]map[string][]byte{}}
 }
 
-// SetPluginName 握手完成后设置插件名（此后 KV 操作按该插件隔离）。
+// SetPluginName 握手完成后设置插件名。
 func (h *HostService) SetPluginName(name string) {
 	h.pluginName.Store(name)
 }
 
-// plugin 获取当前插件名（未设置时用空串，兼容握手期调用）。
 func (h *HostService) plugin() string {
 	if v, ok := h.pluginName.Load().(string); ok {
 		return v
@@ -51,8 +50,6 @@ func (h *HostService) Log(ctx context.Context, e *pb.LogEntry) (*pb.Empty, error
 
 func (h *HostService) StoreGet(ctx context.Context, r *pb.StoreGetRequest) (*pb.StoreGetResponse, error) {
 	plugin := h.plugin()
-
-	// 先查内存缓存
 	h.mu.RLock()
 	if m, ok := h.stores[plugin]; ok {
 		if v, ok := m[r.Key]; ok {
@@ -62,13 +59,11 @@ func (h *HostService) StoreGet(ctx context.Context, r *pb.StoreGetRequest) (*pb.
 	}
 	h.mu.RUnlock()
 
-	// 缓存未命中 → 查库
 	var rec model.PluginStorage
 	if err := h.db.Where("plugin = ? AND key = ?", plugin, r.Key).First(&rec).Error; err != nil {
 		return &pb.StoreGetResponse{Found: false}, nil
 	}
 
-	// 回填缓存
 	h.mu.Lock()
 	if h.stores[plugin] == nil {
 		h.stores[plugin] = map[string][]byte{}
@@ -81,8 +76,6 @@ func (h *HostService) StoreGet(ctx context.Context, r *pb.StoreGetRequest) (*pb.
 
 func (h *HostService) StorePut(ctx context.Context, r *pb.StorePutRequest) (*pb.Empty, error) {
 	plugin := h.plugin()
-
-	// 写库（upsert）
 	if err := h.db.Exec(
 		`INSERT INTO plugin_storage (plugin, key, value, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)
 		 ON CONFLICT(plugin, key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP`,
@@ -91,7 +84,6 @@ func (h *HostService) StorePut(ctx context.Context, r *pb.StorePutRequest) (*pb.
 		return nil, fmt.Errorf("plugin storage write: %w", err)
 	}
 
-	// 更新内存缓存
 	h.mu.Lock()
 	if h.stores[plugin] == nil {
 		h.stores[plugin] = map[string][]byte{}
@@ -117,11 +109,10 @@ func (h *HostService) GetProxy(ctx context.Context, r *pb.GetProxyRequest) (*pb.
 	}, nil
 }
 
-// GetSettings 读插件设置（管理界面在线修改，保存即生效）。
 func (h *HostService) GetSettings(ctx context.Context, r *pb.GetSettingsRequest) (*pb.GetSettingsResponse, error) {
 	var p model.Plugin
 	if err := h.db.Select("settings_json").Where("name = ?", r.Plugin).First(&p).Error; err != nil {
-		return &pb.GetSettingsResponse{Values: []byte("{}")}, nil // 记录缺失按空配置处理
+		return &pb.GetSettingsResponse{Values: []byte("{}")}, nil
 	}
 	if p.SettingsJSON == "" {
 		p.SettingsJSON = "{}"
@@ -129,7 +120,6 @@ func (h *HostService) GetSettings(ctx context.Context, r *pb.GetSettingsRequest)
 	return &pb.GetSettingsResponse{Values: []byte(p.SettingsJSON)}, nil
 }
 
-// ServeHost 在 broker 上挂出宿主服务（由 ClawPluginPlugin.GRPCClient 调用）。
 func (h *HostService) ServeHost(broker interface {
 	AcceptAndServe(id uint32, f func([]grpc.ServerOption) *grpc.Server)
 }) {

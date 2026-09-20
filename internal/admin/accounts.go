@@ -127,8 +127,6 @@ func (s *Server) accountDetail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-
-
 // jsonOrNull 原样透出存储的 JSON 快照（异常时回空对象）。
 func jsonOrNull(s string) json.RawMessage {
 	if s == "" {

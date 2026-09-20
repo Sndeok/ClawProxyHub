@@ -27,15 +27,13 @@ func (s *Server) createProxy(w http.ResponseWriter, r *http.Request) {
 	if body.Scheme == "" {
 		body.Scheme = "http"
 	}
-	// 校验 scheme
 	validSchemes := map[string]bool{"http": true, "https": true, "socks5": true}
 	if !validSchemes[body.Scheme] {
-		http.Error(w, {"error":"scheme must be http, https or socks5"}, http.StatusBadRequest)
+		http.Error(w, `{"error":"scheme must be http, https or socks5"}`, http.StatusBadRequest)
 		return
 	}
-	// 校验 port
 	if body.Port < 1 || body.Port > 65535 {
-		http.Error(w, {"error":"port must be between 1 and 65535"}, http.StatusBadRequest)
+		http.Error(w, `{"error":"port must be between 1 and 65535"}`, http.StatusBadRequest)
 		return
 	}
 	if err := s.db.Create(&body).Error; err != nil {

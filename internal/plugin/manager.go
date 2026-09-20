@@ -29,7 +29,7 @@ type Manager struct {
 	mu      sync.RWMutex
 	plugins map[string]*Instance // key: plugin name
 	dir     string
-	db      *gorm.DB
+	host    *HostService
 	catalog map[string]string // model id → plugin name
 }
 
@@ -74,7 +74,7 @@ func NewManager(dir string, db *gorm.DB) *Manager {
 	return &Manager{
 		plugins: make(map[string]*Instance),
 		dir:     dir,
-		db:      db,
+		host:    NewHostService(db),
 		catalog: map[string]string{},
 	}
 }
@@ -157,7 +157,6 @@ func pluginBinary(dir string) (string, error) {
 
 // Start 启动一个插件子进程并完成契约握手。
 func (m *Manager) Start(ctx context.Context, binPath string) (*Instance, error) {
-	// 每个插件实例持有独立 HostService（KV 按插件隔离 + 持久化）
 	hostSvc := NewHostService(m.db)
 	client := goplugin.NewClient(&goplugin.ClientConfig{
 		HandshakeConfig: handshakeConfig,
@@ -206,7 +205,6 @@ func (m *Manager) Start(ctx context.Context, binPath string) (*Instance, error) 
 			sdk.ProtocolVersion, hs.Manifest.GetProtocolVersion())
 	}
 
-		// 握手完成：设置插件名（此后 HostService 的 KV 存储按该插件隔离）
 	hostSvc.SetPluginName(hs.Manifest.Name)
 
 	inst := &Instance{Name: hs.Manifest.Name, Manifest: hs.Manifest, client: client, rpc: pc}

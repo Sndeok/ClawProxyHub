@@ -63,18 +63,17 @@ func (s *Server) streamOut(w http.ResponseWriter, events chan *pb.StreamEvent, f
 		if failed, ok := ev.Event.(*pb.StreamEvent_TaskFailed); ok && failed.TaskFailed != nil {
 			log.status = http.StatusBadGateway
 			log.errBrief = failed.TaskFailed.Error.GetMessage()
-				// 流式已发 200 无法改状态码：在关闭前发一个错误事件告知客户端
-				errPayload, _ := json.Marshal(map[string]interface{}{
-					"error": map[string]interface{}{
-						"type":    "upstream_error",
-						"message": failed.TaskFailed.Error.GetMessage(),
-						"code":    failed.TaskFailed.Error.GetCode(),
-						},
-					})
-				io.WriteString(w, "data: "+string(errPayload)+"\n\n")
-				if flusher != nil {
-					flusher.Flush()
-				}
+			errPayload, _ := json.Marshal(map[string]interface{}{
+				"error": map[string]interface{}{
+					"type":    "upstream_error",
+					"message": failed.TaskFailed.Error.GetMessage(),
+					"code":    failed.TaskFailed.Error.GetCode(),
+					},
+			})
+			io.WriteString(w, "data: "+string(errPayload)+"\n\n")
+			if flusher != nil {
+				flusher.Flush()
+			}
 			return false
 		}
 		collectUsage(log, ev)
@@ -97,7 +96,7 @@ func (s *Server) streamOut(w http.ResponseWriter, events chan *pb.StreamEvent, f
 			break
 		}
 	}
-		drain(events) // 排空剩余事件，让生产者 goroutine 退出
+	drain(events)
 	io.WriteString(w, enc.finish())
 	log.write(s.db, time.Since(start))
 }
