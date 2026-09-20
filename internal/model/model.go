@@ -75,6 +75,7 @@ type Group struct {
 type Key struct {
 	ID        int64  `gorm:"primaryKey;autoIncrement"`
 	KeyCipher string `gorm:"uniqueIndex;size:256;column:key_cipher"`
+	KeyHash    string    `gorm:"column:key_hash;index;size:64"` // SHA-256 hex(raw)，等值索引快速查找
 	Name      string `gorm:"size:128;default:''"`
 	Enabled   bool   `gorm:"default:true"`
 	ExpiresAt *time.Time
@@ -197,3 +198,13 @@ type Setting struct {
 	Value     string
 	UpdatedAt time.Time `gorm:"column:updated_at"`
 }
+
+// PluginStorage 插件持久化 KV（按插件隔离）。
+type PluginStorage struct {
+	Plugin    string gorm:"primaryKey;size:64"`n	Key       string gorm:"primaryKey;size:256"`n	Value     []byte
+	UpdatedAt time.Time gorm:"column:updated_at"`n}
+
+func (PluginStorage) TableName() string { return "plugin_storage" }
+
+
+

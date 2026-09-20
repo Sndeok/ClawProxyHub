@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/model"
+	"github.com/ShadowSmallBaby/ClawProxyHub/internal/util"
 )
 
 // updateAccount PUT /admin/accounts/{id} — body: {display_name?, group_ids?}
@@ -65,7 +66,7 @@ func (s *Server) pauseAccount(w http.ResponseWriter, r *http.Request) {
 	s.db.Model(&model.Account{}).Where("id = ?", parseInt(r.PathValue("id"))).
 		Updates(map[string]interface{}{
 			"status":       "disabled",
-			"pause_reason": truncStr(body.Reason, 250),
+			"pause_reason": util.TruncStr(body.Reason, 250),
 		})
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -126,12 +127,7 @@ func (s *Server) accountDetail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func truncStr(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
-}
+
 
 // jsonOrNull 原样透出存储的 JSON 快照（异常时回空对象）。
 func jsonOrNull(s string) json.RawMessage {

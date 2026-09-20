@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
@@ -26,13 +28,20 @@ import (
 )
 
 // seedAPIKey 首次部署引导：环境变量指定 key，不存在则入库（加密存储）。
+// 用 SHA-256(raw) 做等值判重（AES-GCM 每次密文不同，不能用密文查重）。
 func seedAPIKey(db *gorm.DB, raw string, dataDir string) error {
+	sum := sha256.Sum256([]byte(raw))
+	hash := hex.EncodeToString(sum[:])
 	var count int64
-	db.Model(&model.Key{}).Where("key_cipher = ?", string(accountpkg.EncryptCredential(dataDir, []byte(raw)))).Count(&count)
+	db.Model(&model.Key{}).Where("key_hash = ?", hash).Count(&count)
 	if count > 0 {
 		return nil
 	}
-	return db.Create(&model.Key{KeyCipher: string(accountpkg.EncryptCredential(dataDir, []byte(raw))), Name: "seed"}).Error
+	return db.Create(&model.Key{
+		KeyCipher: string(accountpkg.EncryptCredential(dataDir, []byte(raw))),
+		KeyHash:   hash,
+		Name:      "seed",
+	}).Error
 }
 
 // syncPluginRecords 启动插件后同步 plugins 表（安装流程落地前的兜底）。

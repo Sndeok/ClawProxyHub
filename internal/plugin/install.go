@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/ShadowSmallBaby/ClawProxyHub/sdk"
 )
@@ -79,7 +80,7 @@ func (m *Manager) InstallZip(ctx context.Context, zipPath string) (string, error
 
 	// 3. 解压到 <dir>/<name>/（清掉旧目录）
 	target := filepath.Join(m.dir, manifest.Name)
-	if err := os.RemoveAll(target); err != nil {
+	if err := removeWithRetry(target); err != nil {
 		return "", fmt.Errorf("clean old install: %w", err)
 	}
 	if err := os.MkdirAll(target, 0o755); err != nil {
@@ -166,6 +167,20 @@ func zipEntry(zr *zip.ReadCloser, base string) *zip.File {
 		}
 	}
 	return nil
+}
+
+// removeWithRetry 删除目录，Windows 上 go-plugin Kill 后可能短暂持有文件锁。
+// 重试 3 次，每次间隔 200ms。
+func removeWithRetry(path string) error {
+	var err error
+	for i := 0; i < 3; i++ {
+		err = os.RemoveAll(path)
+		if err == nil {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return err
 }
 
 func extractTo(f *zip.File, dest string) error {

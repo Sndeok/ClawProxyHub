@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/model"
+	"github.com/ShadowSmallBaby/ClawProxyHub/internal/util"
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/plugin"
 	pb "github.com/ShadowSmallBaby/ClawProxyHub/sdk/proto/cphv1"
 )
@@ -209,7 +210,7 @@ func (s *Service) MarkAutoPause(accountID int64, reason string, resumeAt *time.T
 	s.db.Model(&model.Account{}).Where("id = ? AND status = ?", accountID, "active").
 		Updates(map[string]interface{}{
 			"paused_until": resumeAt,
-			"pause_reason": truncStr(reason, 250),
+			"pause_reason": util.TruncStr(reason, 250),
 		})
 }
 
@@ -221,12 +222,7 @@ func (s *Service) Resume(accountID int64) {
 		})
 }
 
-func truncStr(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
-}
+
 
 // List 插件维度的账号列表（凭据不外泄）。
 func (s *Service) List(pluginID int64) ([]model.Account, error) {
