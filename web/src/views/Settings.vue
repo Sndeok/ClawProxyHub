@@ -9,25 +9,34 @@
         <t-form-item :label="$t('settings.firstTokenTimeout')" :help="$t('settings.firstTokenTimeoutHelp')">
           <t-input-number v-model="gwForm.first_event_timeout" :min="5" :max="3600" theme="column" style="width: 160px" />
         </t-form-item>
-        <t-form-item :label="$t('settings.logRetention')" :help="$t('settings.logRetentionHelp')">
-          <t-input-number v-model="gwForm.log_retention_days" :min="0" :max="3650" theme="column" style="width: 160px" />
-        </t-form-item>
         <t-form-item>
           <t-button theme="primary" :loading="savingGw" @click="saveGw">{{ $t('common.save') }}</t-button>
         </t-form-item>
       </t-form>
     </t-card>
 
+    <t-card :title="$t('settings.logs')" class="card" :bordered="false">
+      <t-form label-width="140px">
+        <t-form-item :label="$t('settings.logRetention')" :help="$t('settings.logRetentionHelp')">
+          <t-input-number v-model="logForm.log_retention_days" :min="0" :max="3650" theme="column" style="width: 160px" />
+        </t-form-item>
+        <t-form-item>
+          <t-button theme="primary" :loading="savingLog" @click="saveLog">{{ $t('common.save') }}</t-button>
+          <span class="form-hint">{{ $t('settings.logRetentionHint') }}</span>
+        </t-form-item>
+      </t-form>
+    </t-card>
+
     <t-card :title="$t('settings.network')" class="card" :bordered="false">
       <t-form label-width="140px">
-        <t-form-item :label="$t('settings.githubProxy')" :help="$t('settings.githubProxyHelp')">
-          <t-input v-model="netForm.github_proxy" placeholder="https://ghproxy.com" style="width: 360px" />
-        </t-form-item>
         <t-form-item :label="$t('settings.marketplaceUrl')" :help="$t('settings.marketplaceHelp')">
-          <t-input v-model="netForm.marketplace_url" :placeholder="$t('settings.marketplacePh')" style="width: 360px" />
+          <t-input v-model="netForm.marketplace_url" :placeholder="$t('settings.marketplacePh')" style="width: 520px" />
         </t-form-item>
         <t-form-item :label="$t('settings.marketProxy')" :help="$t('settings.marketProxyHelp')">
-          <t-input v-model="netForm.market_proxy" :placeholder="$t('settings.marketProxyPh')" style="width: 360px" />
+          <t-input v-model="netForm.market_proxy" :placeholder="$t('settings.marketProxyPh')" style="width: 520px" />
+        </t-form-item>
+        <t-form-item :label="$t('settings.githubProxy')" :help="$t('settings.githubProxyHelp')">
+          <t-input v-model="netForm.github_proxy" placeholder="https://ghproxy.com" style="width: 520px" />
         </t-form-item>
         <t-form-item>
           <t-button theme="primary" :loading="savingNet" @click="saveNet">{{ $t('common.save') }}</t-button>
@@ -62,11 +71,13 @@ import { api } from '../api/client'
 
 const { t } = useI18n()
 
-const gwForm = reactive({ first_event_timeout: 90, log_retention_days: 0 })
+const gwForm = reactive({ first_event_timeout: 90 })
+const logForm = reactive({ log_retention_days: 0 })
 const netForm = reactive({ github_proxy: '', marketplace_url: '', market_proxy: '' })
 const testingConn = ref(false)
 const pwForm = reactive({ password: '', confirm: '' })
 const savingGw = ref(false)
+const savingLog = ref(false)
 const savingNet = ref(false)
 const savingPw = ref(false)
 
@@ -81,7 +92,7 @@ async function load() {
     }
   }>('/admin/settings')
   gwForm.first_event_timeout = r.settings?.first_event_timeout ?? 90
-  gwForm.log_retention_days = r.settings?.log_retention_days ?? 0
+  logForm.log_retention_days = r.settings?.log_retention_days ?? 0
   netForm.github_proxy = r.settings?.github_proxy ?? ''
   netForm.marketplace_url = r.settings?.marketplace_url ?? ''
   netForm.market_proxy = r.settings?.market_proxy ?? ''
@@ -112,7 +123,7 @@ async function testConn() {
 function settingsPayload() {
   return {
     first_event_timeout: gwForm.first_event_timeout,
-    log_retention_days: gwForm.log_retention_days,
+    log_retention_days: logForm.log_retention_days,
     github_proxy: netForm.github_proxy.trim(),
     marketplace_url: netForm.marketplace_url.trim(),
     market_proxy: netForm.market_proxy.trim(),
@@ -128,6 +139,18 @@ async function saveGw() {
     MessagePlugin.error(e.message)
   } finally {
     savingGw.value = false
+  }
+}
+
+async function saveLog() {
+  savingLog.value = true
+  try {
+    await api.put('/admin/settings', settingsPayload())
+    MessagePlugin.success(t('settings.saved'))
+  } catch (e: any) {
+    MessagePlugin.error(e.message)
+  } finally {
+    savingLog.value = false
   }
 }
 
@@ -170,4 +193,9 @@ onMounted(load)
 
 <style scoped>
 .card { max-width: 720px; margin-bottom: 16px }
+.form-hint {
+  margin-left: 12px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
+}
 </style>

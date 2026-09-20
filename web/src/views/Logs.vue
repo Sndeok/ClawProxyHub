@@ -30,7 +30,9 @@
     <!-- 工具条 -->
     <div class="toolbar">
       <div class="toolbar-left">
-        <span class="muted">{{ $t('logs.totalCount', { n: total }) }}</span>
+        <span class="muted">
+          {{ $t('logs.totalCount', { n: total }) }}<template v-if="rangeLabel"> · {{ rangeLabel }}</template>
+        </span>
         <label class="auto-refresh">
           <t-switch v-model="autoRefresh" size="small" />
           <span>{{ $t('logs.autoRefresh') }}</span>
@@ -241,6 +243,10 @@ const accountOptions = computed(() => [
     return { label: `${a.display_name || '#' + a.id} · ${brand}`, value: a.id }
   }),
 ])
+// 当前时间范围文案：让「只能看到 24 小时内的日志」这类疑惑一眼可解
+const rangeLabel = computed(
+  () => rangeOptions.value.find((o) => o.value === filters.range)?.label ?? '',
+)
 const cleanupOptions = computed(() => [
   { label: t('logs.cleanup7'), value: 7 },
   { label: t('logs.cleanup30'), value: 30 },
