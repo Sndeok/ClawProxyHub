@@ -134,7 +134,7 @@ func (h *HostService) ServeHost(broker interface {
 	AcceptAndServe(id uint32, f func([]grpc.ServerOption) *grpc.Server)
 }) {
 	broker.AcceptAndServe(hostBrokerID, func(opts []grpc.ServerOption) *grpc.Server {
-		srv := grpc.NewServer(opts)
+		srv := grpc.NewServer(opts...)
 		pb.RegisterClawHostServer(srv, h)
 		return srv
 	})

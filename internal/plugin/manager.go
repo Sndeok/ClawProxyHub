@@ -29,6 +29,7 @@ type Manager struct {
 	mu      sync.RWMutex
 	plugins map[string]*Instance // key: plugin name
 	dir     string
+	db      *gorm.DB
 	catalog map[string]string // model id → plugin name
 }
 
@@ -73,6 +74,7 @@ func NewManager(dir string, db *gorm.DB) *Manager {
 	return &Manager{
 		plugins: make(map[string]*Instance),
 		dir:     dir,
+		db:      db,
 		catalog: map[string]string{},
 	}
 }
