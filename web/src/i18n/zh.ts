@@ -134,7 +134,7 @@ export default {
     marketplaceHelp: '指向插件仓库的 index.json，默认即自建插件仓库；换仓库只改这一项',
     marketplacePh: '留空 = 使用内置默认地址',
     marketProxy: '插件市场代理',
-    marketProxyHelp: '拉取索引与下载插件包共用；留空 = 直连。支持 socks5://host:port、socks5://user:pass@host:port、http://host:port（省略协议头按 socks5 处理）',
+    marketProxyHelp: '拉取索引与下载插件包共用；留空 = 直连。支持 socks5://host:port、socks5://user:pass{\'@\'}host:port、http://host:port（省略协议头按 socks5 处理）',
     marketProxyPh: 'socks5://127.0.0.1:1080（留空 = 直连）',
     testConn: '测试连接',
     testOk: '连接成功：{n} 个插件，耗时 {ms} ms',

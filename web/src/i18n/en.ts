@@ -134,7 +134,7 @@ export default {
     marketplaceHelp: 'Points at the plugin repo index.json (defaults to the self-hosted repo). Change this to switch repos',
     marketplacePh: 'Empty = built-in default address',
     marketProxy: 'Marketplace Proxy',
-    marketProxyHelp: 'Used for fetching the index and downloading plugin packages; empty = direct. Supports socks5://host:port, socks5://user:pass@host:port, http://host:port (no scheme = socks5)',
+    marketProxyHelp: 'Used for fetching the index and downloading plugin packages; empty = direct. Supports socks5://host:port, socks5://user:pass{\'@\'}host:port, http://host:port (no scheme = socks5)',
     marketProxyPh: 'socks5://127.0.0.1:1080 (empty = direct)',
     testConn: 'Test Connection',
     testOk: 'Connected: {n} plugins in {ms} ms',

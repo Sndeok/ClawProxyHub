@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "check:i18n": "node scripts/check-i18n.cjs",
+    "build": "node scripts/check-i18n.cjs && vue-tsc --noEmit && vite build",
     "build-fast": "vite build"
   },
   "dependencies": {
