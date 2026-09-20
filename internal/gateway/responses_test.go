@@ -73,8 +73,57 @@ func TestParseResponsesRequestCodex(t *testing.T) {
 	if req.Messages[2].Role != "user" || req.Messages[2].Text != "今天是几号了" {
 		t.Errorf("input_text 提取失败: %+v", req.Messages[2])
 	}
-	if req.Extra["reasoning_effort"] != "xhigh" {
-		t.Errorf("reasoning.effort 未透传: %q", req.Extra["reasoning_effort"])
+	// v1.0.2 起不再透传 reasoning.effort：Codex 发 "xhigh" 这类私有值，
+	// 上游不认会直接 500（Responses 本就没有顶层 reasoning_effort）。
+	if _, ok := req.Extra["reasoning_effort"]; ok {
+		t.Errorf("reasoning.effort 不应透传: %q", req.Extra["reasoning_effort"])
+	}
+	if _, ok := req.Extra["reasoning"]; ok {
+		t.Errorf("reasoning 原始字段不应透传: %q", req.Extra["reasoning"])
+	}
+}
+
+// TestParseResponsesParallelFunctionCalls 并行工具调用：相邻的 function_call 必须
+// 合并进同一条 assistant 的 tool_calls，否则 tool 消息与声明它的 assistant 错位，
+// 上游会拒绝整段历史（Codex 多工具并行时必现）。
+func TestParseResponsesParallelFunctionCalls(t *testing.T) {
+	body := `{
+		"model": "m",
+		"input": [
+			{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "并行查两个链接"}]},
+			{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": "我来并行查"}]},
+			{"type": "function_call", "call_id": "call_a", "name": "fetch_url", "arguments": "{\"url\":\"a\"}"},
+			{"type": "function_call", "call_id": "call_b", "name": "fetch_url", "arguments": ""},
+			{"type": "function_call_output", "call_id": "call_a", "output": "A"},
+			{"type": "function_call_output", "call_id": "call_b", "output": "B"}
+		]
+	}`
+	req, err := parseResponsesRequest([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// user + assistant(带 2 个 tool_call) + tool + tool = 4
+	if len(req.Messages) != 4 {
+		t.Fatalf("want 4 messages, got %d: %+v", len(req.Messages), req.Messages)
+	}
+	asst := req.Messages[1]
+	if asst.Role != "assistant" || asst.Text != "我来并行查" {
+		t.Errorf("assistant 文本未与 tool_calls 合并: %+v", asst)
+	}
+	if len(asst.ToolCalls) != 2 {
+		t.Fatalf("两个并行调用应合并进同一条 assistant，got %d: %+v", len(asst.ToolCalls), asst.ToolCalls)
+	}
+	if asst.ToolCalls[0].Id != "call_a" || asst.ToolCalls[1].Id != "call_b" {
+		t.Errorf("tool_call 顺序或 id 不对: %+v", asst.ToolCalls)
+	}
+	if asst.ToolCalls[1].Arguments != "{}" {
+		t.Errorf("空 arguments 应补成 {}，got %q", asst.ToolCalls[1].Arguments)
+	}
+	if req.Messages[2].Role != "tool" || req.Messages[2].ToolCallId != "call_a" {
+		t.Errorf("tool 消息错位: %+v", req.Messages[2])
+	}
+	if req.Messages[3].Role != "tool" || req.Messages[3].ToolCallId != "call_b" {
+		t.Errorf("tool 消息错位: %+v", req.Messages[3])
 	}
 }
 

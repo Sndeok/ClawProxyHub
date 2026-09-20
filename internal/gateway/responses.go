@@ -36,15 +36,9 @@ func parseResponsesRequest(body []byte) (*pb.ChatRequest, error) {
 	if raw.TopP != nil {
 		req.Extra["top_p"] = fmt.Sprintf("%g", *raw.TopP)
 	}
-	if len(raw.Reasoning) > 0 {
-		req.Extra["reasoning"] = string(raw.Reasoning)
-		var reasoning struct {
-			Effort string `json:"effort"`
-		}
-		if json.Unmarshal(raw.Reasoning, &reasoning) == nil && reasoning.Effort != "" {
-			req.Extra["reasoning_effort"] = reasoning.Effort
-		}
-	}
+	// 不透传 reasoning / reasoning.effort：Responses 本无顶层 reasoning_effort，
+	// 而 Codex 会发 "xhigh" 这类上游不认的私有值，透传过去直接 500。
+	// （对齐上游 v1.0.2：该字段在归一化时丢弃。）
 	if raw.Instructions != "" {
 		req.Messages = append(req.Messages, &pb.EnvelopeMessage{Role: "system", Text: raw.Instructions})
 	}
@@ -68,25 +62,48 @@ func parseResponsesRequest(body []byte) (*pb.ChatRequest, error) {
 		if err := json.Unmarshal(raw.Input, &items); err != nil {
 			return nil, fmt.Errorf("input must be string or message array")
 		}
+		// 合并相邻 assistant message 与 function_call：并行调用必须归入同一条
+		// assistant 的 tool_calls。否则会退化成「N 条各带 1 个 tool_call 的 assistant」，
+		// 随后的 tool 消息与声明它的 assistant 错位，上游直接拒绝。
+		var pendText string
+		var pendAssistant bool
+		var pendTools []*pb.ToolCall
+		flushAssistant := func() {
+			if !pendAssistant && len(pendTools) == 0 {
+				return
+			}
+			req.Messages = append(req.Messages, &pb.EnvelopeMessage{
+				Role: "assistant", Text: pendText, ToolCalls: pendTools,
+			})
+			pendText, pendAssistant, pendTools = "", false, nil
+		}
 		for _, it := range items {
 			switch it.Type {
 			case "message", "":
+				role := normalizeRole(it.Role)
+				if role == "assistant" {
+					flushAssistant()
+					pendText, pendAssistant = extractText(it.Content), true
+					continue
+				}
+				flushAssistant()
 				req.Messages = append(req.Messages, &pb.EnvelopeMessage{
-					Role: normalizeRole(it.Role), Text: extractText(it.Content),
+					Role: role, Text: extractText(it.Content),
 				})
 			case "function_call":
-				req.Messages = append(req.Messages, &pb.EnvelopeMessage{
-					Role: "assistant",
-					ToolCalls: []*pb.ToolCall{{
-						Id: it.CallID, Name: it.Name, Arguments: it.Arguments,
-					}},
-				})
+				args := it.Arguments
+				if args == "" {
+					args = "{}" // 上游要求 arguments 是合法 JSON 文本
+				}
+				pendTools = append(pendTools, &pb.ToolCall{Id: it.CallID, Name: it.Name, Arguments: args})
 			case "function_call_output":
+				flushAssistant()
 				req.Messages = append(req.Messages, &pb.EnvelopeMessage{
 					Role: "tool", Text: it.Output, ToolCallId: it.CallID,
 				})
 			}
 		}
+		flushAssistant()
 	}
 
 	for _, t := range raw.Tools {
