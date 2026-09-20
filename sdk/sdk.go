@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
@@ -31,22 +32,47 @@ func HandshakeConfig() goplugin.HandshakeConfig {
 	}
 }
 
+// hostDialRetry 宿主回调拨号失败后的重试间隔。
+const hostDialRetry = 30 * time.Second
+
 // Host 宿主回调能力（由核心注入，插件实现里可取用）。
-// 连接懒建立：首次调用时才经 broker 反连宿主，避开握手期时序。
+//
+// 连接在插件启动阶段就建立（warmup），失败则退避重试。
+// 不能改成「首次使用时懒加载」：go-plugin 的 broker 在发出 ConnInfo 后只保留
+// 5 秒（grpc_broker.go 的 timeoutWait），而插件的第一次宿主调用（日志 / 状态
+// 读写 / 读设置）通常发生在核心启动很久之后的真实请求里，届时 ConnInfo 已被
+// 回收，Dial 会等满 5 秒后超时；若把该失败缓存成终态，插件日志与插件状态持久化
+// 会在此进程生命周期内静默失效。
 type Host struct {
-	dial   func() (pb.ClawHostClient, error)
-	once   sync.Once
-	client pb.ClawHostClient
-	err    error
+	dial    func() (pb.ClawHostClient, error)
+	mu      sync.Mutex
+	client  pb.ClawHostClient
+	nextTry time.Time
+}
+
+// warmup 在插件启动阶段主动建立宿主连接（此时 ConnInfo 尚未过期）。
+func (h *Host) warmup() {
+	if c := h.conn(); c == nil {
+		fmt.Fprintln(os.Stderr, "[cph-sdk] host callback unavailable at startup; will retry on first use")
+	}
 }
 
 func (h *Host) conn() pb.ClawHostClient {
-	h.once.Do(func() {
-		h.client, h.err = h.dial()
-		if h.err != nil {
-			fmt.Fprintf(os.Stderr, "[cph-sdk] host dial failed: %v\n", h.err)
-		}
-	})
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.client != nil {
+		return h.client
+	}
+	if time.Now().Before(h.nextTry) {
+		return nil // 退避窗口内：本次跳过，避免每个调用都卡满 5 秒
+	}
+	client, err := h.dial()
+	if err != nil {
+		h.nextTry = time.Now().Add(hostDialRetry)
+		fmt.Fprintf(os.Stderr, "[cph-sdk] host dial failed (retry in %s): %v\n", hostDialRetry, err)
+		return nil
+	}
+	h.client = client
 	return h.client
 }
 
@@ -109,13 +135,19 @@ type pluginServer struct {
 
 func (s *pluginServer) GRPCServer(broker *goplugin.GRPCBroker, srv *grpc.Server) error {
 	if ha, ok := s.impl.(HostAware); ok {
-		ha.SetHost(&Host{dial: func() (pb.ClawHostClient, error) {
+		host := &Host{dial: func() (pb.ClawHostClient, error) {
 			conn, err := broker.Dial(HostBrokerID)
 			if err != nil {
 				return nil, err
 			}
 			return pb.NewClawHostClient(conn), nil
-		}})
+		}}
+		ha.SetHost(host)
+		// 必须异步：GRPCServer 要在 gRPC server 开始 Serve 之前返回，同步拨号
+		// 会让核心侧的连接建立（grpc.WithBlock 等 HTTP/2 握手）一直卡到拨号
+		// 超时为止。异步拨号在 Serve 启动后立刻发起，正好落在 ConnInfo 的
+		// 5 秒窗口内。
+		go host.warmup()
 	}
 	pb.RegisterClawPluginServer(srv, s.impl)
 	return nil

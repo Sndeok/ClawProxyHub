@@ -3,11 +3,14 @@
 package plugin
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	goplugin "github.com/hashicorp/go-plugin"
@@ -166,6 +169,9 @@ func (m *Manager) Start(ctx context.Context, binPath string) (*Instance, error) 
 		},
 		Cmd:              execCommand(binPath),
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
+		// 接住插件子进程的 stderr：go-plugin 默认只记「收到 N 字节」并丢弃内容，
+		// 插件自身的诊断信息（宿主回调失败、panic 栈）会被整个吞掉。
+		Stderr: newPluginStderr(filepath.Base(filepath.Dir(binPath))),
 	})
 
 	rpcClient, err := client.Client()
@@ -340,4 +346,41 @@ func (m *Manager) StopAll() {
 	for _, n := range names {
 		m.Stop(n)
 	}
+}
+// ---------- 插件子进程 stderr 转发 ----------
+
+// pluginStderr 按行把插件 stderr 转成核心日志（带插件名前缀）。
+// 插件握手前就可能写 stderr，此时用安装目录名（= 插件 id）作前缀。
+type pluginStderr struct {
+	name string
+	mu   sync.Mutex
+	buf  []byte
+}
+
+// maxStderrBuf 单行缓冲上限：防止插件狂写不带换行的内容撑爆内存。
+const maxStderrBuf = 64 << 10
+
+func newPluginStderr(name string) *pluginStderr {
+	return &pluginStderr{name: name}
+}
+
+func (w *pluginStderr) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buf = append(w.buf, p...)
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			break
+		}
+		line := strings.TrimRight(string(w.buf[:i]), "\r")
+		w.buf = w.buf[i+1:]
+		if line != "" {
+			log.Printf("[plugin:%s] %s", w.name, line)
+		}
+	}
+	if len(w.buf) > maxStderrBuf {
+		w.buf = w.buf[:0]
+	}
+	return len(p), nil
 }

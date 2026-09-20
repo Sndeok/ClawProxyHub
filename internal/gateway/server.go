@@ -18,8 +18,8 @@ import (
 
 	accountpkg "github.com/ShadowSmallBaby/ClawProxyHub/internal/account"
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/model"
-	"github.com/ShadowSmallBaby/ClawProxyHub/internal/util"
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/router"
+	"github.com/ShadowSmallBaby/ClawProxyHub/internal/util"
 	pb "github.com/ShadowSmallBaby/ClawProxyHub/sdk/proto/cphv1"
 )
 
@@ -246,6 +246,7 @@ func (s *Server) endpointAllowed(pluginName, protocol string) bool {
 
 // serve 统一出口：路由名解析（fallback 真实模型名）→ 端点能力校验 → 选账号 → 插件流 → 回写 + 落日志。
 func (s *Server) serve(w http.ResponseWriter, r *http.Request, key *model.Key, req *pb.ChatRequest, protocol string) {
+	start := time.Now()    // 计时基准：包含路由解析 / 选号 / 重试在内的完整请求耗时
 	origModel := req.Model // 对外模型名（换号重试时用于重新解析路由）
 	req.Source = protocol  // 告知插件客户端进入的协议
 	var (
@@ -316,11 +317,14 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key *model.Key, r
 	// 发起调用。失败恢复顺序：401 先保凭据（刷新同账号 → 换号，保住会话粘性），
 	// 穷尽后或非凭据错误走路由降级（状态类匹配，每次请求至多降一次）。
 	// 注意：req.Model 已替换为真实模型名，重试解析路由需用原始对外名
-	log := &requestLogCtx{key: key, account: account, model: req.Model, protocol: protocol, stream: req.Stream,
+	log := &requestLogCtx{start: start, key: key, account: account, requestedModel: origModel, model: req.Model,
+		protocol: protocol, stream: req.Stream,
 		clientIP: clientIP(r), userAgent: util.TruncStr(r.UserAgent(), 250)}
 	var route *model.Route
 	if resolved != nil {
 		route = resolved.Route
+		log.routeID = &resolved.Route.ID
+		log.groupID = &resolved.GroupID
 	}
 	failoverUsed := false
 	timeout := s.firstEventTimeout(route)
@@ -333,6 +337,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key *model.Key, r
 			account = again.Account
 			pluginName = again.PluginName
 			groupID = again.GroupID
+			log.groupID = &again.GroupID
 			req.Model = again.RealModel
 			cred = s.buildCred(account, groupID)
 			log.account = account
@@ -380,6 +385,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key *model.Key, r
 		account = res.Account
 		pluginName = res.PluginName
 		groupID = res.GroupID
+		log.groupID = &res.GroupID
 		req.Model = res.RealModel
 		cred = s.buildCred(account, groupID)
 		log.account = account
@@ -411,13 +417,13 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key *model.Key, r
 		return switchFailover(status), nil
 	}
 
-	start := time.Now()
 	// failWith 终态失败收尾：写响应 + 落日志。
 	failWith := func(status int, errType, brief string) {
 		log.status = status
+		log.errorType = errType
 		log.errBrief = brief
 		writeJSON(w, status, errBody(errType, errors.New(brief)))
-		log.write(s.db, time.Since(start))
+		log.write(s.db)
 	}
 	// finishUnrecovered 恢复穷尽后的统一出口（区分 401 无号 503 / 其它 502）。
 	finishUnrecovered := func(code int32, brief string, transient error) {
@@ -437,6 +443,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key *model.Key, r
 	defer func() { attemptCancel() }()
 
 	for attempt := 0; ; attempt++ {
+		log.attempts = int32(attempt + 1)
 		events, err := s.plugins.Chat(attemptCtx, req, pluginName, cred)
 		if err != nil {
 			// 通道级失败（插件崩溃等）按 5xx 类参与降级判定
@@ -566,25 +573,47 @@ func (s *Server) buildCred(account *model.Account, groupID int64) *pb.Credential
 
 // requestLogCtx 单次请求的日志上下文。
 type requestLogCtx struct {
-	key          *model.Key
-	account      *model.Account
-	model        string
-	protocol     string
-	stream       bool
-	input        int64
-	output       int64
-	cached       int64
-	status       int
-	firstTokenMs int32
-	clientIP     string
-	userAgent    string
-	errBrief     string
+	start          time.Time // 请求进入 serve 的时刻（所有耗时口径的唯一基准）
+	key            *model.Key
+	account        *model.Account
+	requestedModel string // 客户端请求的模型名（路由别名）
+	model          string // 实际投递上游的模型名
+	routeID        *int64
+	groupID        *int64
+	protocol       string
+	stream         bool
+	attempts       int32
+	finishReason   string
+	errorType      string
+	input          int64
+	output         int64
+	cached         int64
+	status         int
+	firstTokenMs   int32
+	clientIP       string
+	userAgent      string
+	errBrief       string
 }
 
 // write 落库 request_logs。
-func (c *requestLogCtx) write(db *gorm.DB, latency time.Duration) {
+// 耗时在这里统一计算：从 serve 入口到落库，成功 / 流式中断 / 失败 / 重试耗尽
+// 所有出口共用同一口径。此前由各调用方传入 time.Since(局部 start)，导致
+// streamOut / nonStreamOut 只统计「首事件之后的输出阶段」，出现
+// 「首字 5001ms、总耗时 1ms」这种自相矛盾的数据。
+func (c *requestLogCtx) write(db *gorm.DB) {
+	if c.start.IsZero() {
+		c.start = time.Now()
+	}
+	latency := time.Since(c.start)
+	attempts := c.attempts
+	if attempts < 1 {
+		attempts = 1
+	}
 	rl := &model.RequestLog{
-		Model: c.model, Protocol: c.protocol, Status: int32(c.status),
+		RequestedModel: c.requestedModel, Model: c.model,
+		RouteID: c.routeID, GroupID: c.groupID,
+		Protocol: c.protocol, Stream: c.stream, Status: int32(c.status),
+		FinishReason: c.finishReason, Attempts: attempts, ErrorType: c.errorType,
 		InputTokens: int32(c.input), OutputTokens: int32(c.output),
 		CachedTokens: int32(c.cached), LatencyMs: int32(latency.Milliseconds()),
 		FirstTokenMs: c.firstTokenMs, ClientIP: c.clientIP, UserAgent: c.userAgent,
@@ -615,4 +644,3 @@ func clientIP(r *http.Request) string {
 	}
 	return r.RemoteAddr
 }
-

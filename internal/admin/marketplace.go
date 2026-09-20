@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/plugin"
 )
@@ -24,8 +23,8 @@ import (
 //go:embed offline_market.json
 var offlineMarketJSON []byte
 
-// marketHTTPClient 市场请求统一走带超时的 client，避免网络不通时挂死。
-var marketHTTPClient = &http.Client{Timeout: 20 * time.Second}
+// maxPluginPackageBytes 插件包体积上限（.cphplugin 内含 5 个平台二进制）。
+const maxPluginPackageBytes = 256 << 20
 
 // offlineMarket 解析内置离线索引。
 func offlineMarket() []MarketEntry {
@@ -135,7 +134,7 @@ func (s *Server) installMarket(w http.ResponseWriter, r *http.Request) {
 
 	dl := *entry // 下载 URL 套 GitHub 代理（索引里的原始地址保持干净）
 	dl.DownloadURL = s.withGitHubProxy(entry.DownloadURL)
-	zipPath, err := downloadToTemp(&dl)
+	zipPath, err := s.downloadToTemp(&dl)
 	if err != nil {
 		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadGateway)
 		return
@@ -232,24 +231,32 @@ func (s *Server) marketURL() string {
 	return s.marketplaceURL
 }
 
-// fetchMarket 拉线上市场索引（走 GitHub 代理配置）；不可达时回落内置离线清单。
+// fetchMarket 拉线上市场索引（走代理配置）；不可达时回落内置离线清单。
 // online=false 表示返回的是离线兜底。
 func (s *Server) fetchMarket() (entries []MarketEntry, online bool) {
-	resp, err := marketHTTPClient.Get(s.withGitHubProxy(s.marketURL()))
-	if err == nil {
-		defer resp.Body.Close()
-		if resp.StatusCode == http.StatusOK {
-			if err := json.NewDecoder(resp.Body).Decode(&entries); err == nil && len(entries) > 0 {
-				return entries, true
-			}
-		}
+	entries, err := s.fetchMarketRemote()
+	if err != nil {
+		return offlineMarket(), false
 	}
-	return offlineMarket(), false
+	return entries, true
 }
 
-// downloadToTemp 下载市场包（走 GitHub 代理配置）并校验 sha256。
-func downloadToTemp(entry *MarketEntry) (string, error) {
-	resp, err := marketHTTPClient.Get(entry.DownloadURL)
+// fetchMarketRemote 只走线上并返回失败原因（市场页与「测试连接」共用）。
+func (s *Server) fetchMarketRemote() ([]MarketEntry, error) {
+	client, err := marketClient(s.settings.MarketProxy(), marketIndexTimeout)
+	if err != nil {
+		return nil, err
+	}
+	return fetchIndex(client, s.withGitHubProxy(s.marketURL()))
+}
+
+// downloadToTemp 下载市场包（走代理配置）并校验 sha256。
+func (s *Server) downloadToTemp(entry *MarketEntry) (string, error) {
+	client, err := marketClient(s.settings.MarketProxy(), marketDownloadTimeout)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Get(entry.DownloadURL)
 	if err != nil {
 		return "", err
 	}
@@ -262,10 +269,16 @@ func downloadToTemp(entry *MarketEntry) (string, error) {
 		return "", err
 	}
 	hasher := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(tmp, hasher), resp.Body); err != nil {
+	n, err := io.Copy(io.MultiWriter(tmp, hasher), io.LimitReader(resp.Body, maxPluginPackageBytes))
+	if err != nil {
 		tmp.Close()
 		os.Remove(tmp.Name())
 		return "", err
+	}
+	if n >= maxPluginPackageBytes {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return "", fmt.Errorf("插件包超过 %dMB 上限", maxPluginPackageBytes>>20)
 	}
 	tmp.Close()
 	if entry.SHA256 != "" {

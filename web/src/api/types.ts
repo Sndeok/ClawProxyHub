@@ -177,12 +177,24 @@ export interface TaskRun {
   finished_at: string | null
 }
 
+// 调用日志（服务端字段名与 model.RequestLog 对齐；key_name/account_name 为查询时反查）
 export interface RequestLog {
   ID: number
   KeyID: number | null
-  Model: string
+  key_name?: string
+  PluginID: number | null
+  AccountID: number | null
+  account_name?: string
+  RequestedModel: string // 客户端请求的模型名（可能是路由别名）
+  Model: string // 实际投递上游的模型名
+  RouteID: number | null
+  GroupID: number | null
   Protocol: string
+  Stream: boolean
   Status: number
+  FinishReason: string
+  Attempts: number
+  ErrorType: string
   InputTokens: number
   OutputTokens: number
   CachedTokens: number
@@ -192,6 +204,15 @@ export interface RequestLog {
   UserAgent: string
   ErrorBrief: string
   CreatedAt: string
+}
+
+// GET /admin/logs 分页响应
+export interface LogPage {
+  logs: RequestLog[]
+  total: number
+  page: number
+  page_size: number
+  has_more: boolean
 }
 
 export interface Stats {

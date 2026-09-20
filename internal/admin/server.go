@@ -31,14 +31,16 @@ type Server struct {
 }
 
 // New 创建管理后台；表空且配置了 CPH_ADMIN_PASSWORD 时自动引导建号。
-func New(db *gorm.DB, accounts *account.Service, plugins *plugin.Manager, engine *task.Engine, settings *setting.Store, marketplaceURL string) *Server {
+// marketplaceURL / marketProxy 来自环境变量，仅作为首次启动的默认值写入设置表。
+func New(db *gorm.DB, accounts *account.Service, plugins *plugin.Manager, engine *task.Engine, settings *setting.Store, marketplaceURL, marketProxy string) *Server {
 	s := &Server{
 		db: db, accounts: accounts, plugins: plugins, engine: engine,
 		settings: settings, marketplaceURL: marketplaceURL,
 	}
-	// 市场地址初始化：未配置时落官方默认（config 默认 = env 覆盖或官方地址），
-	// 用户后续可在系统设置改为自建市场；生效顺序：settings 配置 > config 默认 > 离线兜底
+	// 市场地址与出站代理初始化：未配置时落环境变量默认值（env 缺省 = 内置默认 / 直连），
+	// 用户后续可在系统设置修改；生效顺序：settings 配置 > env 默认 > 离线兜底
 	settings.EnsureDefault(setting.KeyMarketplaceURL, marketplaceURL)
+	settings.EnsureDefault(setting.KeyMarketProxy, marketProxy)
 	s.ensureAdminSeed()
 	return s
 }
@@ -93,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /admin/routes/{id}", s.auth(s.deleteRoute))
 	mux.HandleFunc("GET /admin/settings", s.auth(s.getSettings))
 	mux.HandleFunc("PUT /admin/settings", s.auth(s.putSettings))
+	mux.HandleFunc("POST /admin/settings/test-market", s.auth(s.testMarket))
 	mux.HandleFunc("GET /admin/task-rules", s.auth(s.listTaskRules))
 	mux.HandleFunc("POST /admin/task-rules", s.auth(s.createTaskRule))
 	mux.HandleFunc("POST /admin/task-rules/{id}/toggle", s.auth(s.toggleTaskRule))
@@ -100,6 +103,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/task-rules/{id}/run", s.auth(s.runTaskRule))
 	mux.HandleFunc("GET /admin/task-runs", s.auth(s.listTaskRuns))
 	mux.HandleFunc("GET /admin/logs", s.auth(s.listLogs))
+	mux.HandleFunc("POST /admin/logs/cleanup", s.auth(s.logCleanup))
 	mux.HandleFunc("GET /admin/stats", s.auth(s.dashboardStats))
 	mux.HandleFunc("GET /admin/stats/quota", s.auth(s.dashboardQuota))
 	mux.HandleFunc("GET /admin/stats/trend", s.auth(s.dashboardTrend))

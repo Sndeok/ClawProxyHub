@@ -1,7 +1,7 @@
 services:
   cph:
     build: .
-    image: shadowbaby/claw-proxy-hub:latest
+    image: sndeok/claw-proxy-hub:latest
     container_name: cph
     restart: unless-stopped
     ports:
@@ -12,5 +12,10 @@ services:
       CPH_ADMIN_PASSWORD: change-me
       # 可选：首启引导调用密钥
       # CPH_SEED_API_KEY: cph-xxxx
+      # 插件市场索引（留空 = 内置默认，指向 Sndeok/ClawProxyHubPlugins）
+      # CPH_MARKETPLACE_URL: https://raw.githubusercontent.com/Sndeok/ClawProxyHubPlugins/main/index.json
+      # 插件市场出站代理：拉索引 + 下载插件包共用（留空 = 直连）
+      # 支持 socks5://host:port、socks5://user:pass@host:port、http://host:port
+      # CPH_MARKET_PROXY: socks5://192.168.1.10:1080
     volumes:
       - ./data:/app/data

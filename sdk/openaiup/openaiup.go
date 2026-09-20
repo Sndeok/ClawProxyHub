@@ -4,6 +4,7 @@ package openaiup
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	pb "github.com/ShadowSmallBaby/ClawProxyHub/sdk/proto/cphv1"
@@ -87,12 +88,13 @@ func ChatBody(req *pb.ChatRequest) map[string]interface{} {
 type Parser struct {
 	emit        func(*pb.StreamEvent)
 	pendingStop string
-	toolSeen    map[int]bool // tool_calls index → 是否已发过 name
+	toolIDs     map[int]string // tool_calls index → 该调用的 id
+	toolNames   map[int]string // tool_calls index → 该调用的 name
 	sentFinish  bool
 }
 
 func NewParser(emit func(*pb.StreamEvent)) *Parser {
-	return &Parser{emit: emit, toolSeen: map[int]bool{}}
+	return &Parser{emit: emit, toolIDs: map[int]string{}, toolNames: map[int]string{}}
 }
 
 // Feed 处理一行（"data: {...}" 或 "data: [DONE]"）。
@@ -136,16 +138,26 @@ func (p *Parser) Feed(line string) {
 			}})
 		}
 		for _, tc := range c.Delta.ToolCalls {
-			ev := &pb.ToolCallDelta{
-				Id:             tc.ID,
-				Name:           tc.Function.Name,
-				ArgumentsDelta: tc.Function.Arguments,
+			// 上游只在首块带 id/name，后续 arguments 增量两者皆空。信封侧按 id
+			// 分组，因此这里按 index 记住身份并在每次增量补齐——否则同一调用会
+			// 被拆成「空 id 的新块」，客户端拿到残缺的 tool_calls，工具不会执行。
+			if tc.ID != "" {
+				p.toolIDs[tc.Index] = tc.ID
 			}
-			if tc.ID == "" && p.toolSeen[tc.Index] {
-				ev.Id = "" // 后续增量不带 id，避免信封侧误开新块
+			if tc.Function.Name != "" {
+				p.toolNames[tc.Index] = tc.Function.Name
 			}
-			p.toolSeen[tc.Index] = true
-			p.emit(&pb.StreamEvent{Event: &pb.StreamEvent_ToolCallDelta{ToolCallDelta: ev}})
+			id := p.toolIDs[tc.Index]
+			if id == "" {
+				id = fmt.Sprintf("call_%d", tc.Index) // 上游从未给 id 时兜底，保证非空稳定
+			}
+			p.emit(&pb.StreamEvent{Event: &pb.StreamEvent_ToolCallDelta{
+				ToolCallDelta: &pb.ToolCallDelta{
+					Id:             id,
+					Name:           p.toolNames[tc.Index],
+					ArgumentsDelta: tc.Function.Arguments,
+				},
+			}})
 		}
 		if c.FinishReason != nil && *c.FinishReason != "" {
 			p.pendingStop = *c.FinishReason

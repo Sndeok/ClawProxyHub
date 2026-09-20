@@ -97,6 +97,11 @@ func TestParserToolCalls(t *testing.T) {
 	}
 	if toolEvents[1].ArgumentsDelta != `"more"` {
 		t.Errorf("second tool delta wrong: %+v", toolEvents[1])
+	// 后续 arguments 增量必须补齐同一个 id/name：核心按 id 分组，空 id 会被
+	// 当成新调用开新块，客户端最终拿到残缺的 tool_calls（工具不执行）。
+	if toolEvents[1].Id != "call_1" || toolEvents[1].Name != "f" {
+		t.Errorf("continuation delta must keep id/name, got %+v", toolEvents[1])
+	}
 	}
 	if finish == nil || finish.FinishReason != "tool_calls" {
 		t.Errorf("finish wrong: %+v", finish)

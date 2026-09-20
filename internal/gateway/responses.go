@@ -115,19 +115,53 @@ type respTool struct {
 
 // ---------- 信封事件 → Responses SSE ----------
 
+// respFnItem 一个 function_call output item 的累积状态。
+type respFnItem struct {
+	itemID string
+	name   string
+	idx    int
+	args   string
+}
+
 type responsesSSEState struct {
 	model    string
 	respID   string
-	textItem string // 文本 output_item 的 item_id；空未开
-	nextItem int
-	fnItems  map[string]string // tool call id → item_id
-	usage    *pb.Usage
+	nextItem int // 递增的 output_index；文本 item 与 function_call item 共用同一序列
+	textItem string
+	textIdx  int
+	text     string
+	fnItems  map[string]*respFnItem
+	fnOrder  []string
+	tools    toolCallTracker
 }
 
 func newResponsesSSEState(model string) *responsesSSEState {
 	return &responsesSSEState{
 		model: model, respID: "resp_" + randHex(16),
-		textItem: "", fnItems: map[string]string{},
+		textItem: "", textIdx: -1, fnItems: map[string]*respFnItem{},
+	}
+}
+
+// addFn 首次出现的工具调用 → 建 item 并返回（needStart=true 表示要发 output_item.added）。
+func (s *responsesSSEState) addFn(id, name string) (*respFnItem, bool) {
+	if it, ok := s.fnItems[id]; ok {
+		if it.name == "" && name != "" {
+			it.name = name
+		}
+		return it, false
+	}
+	it := &respFnItem{itemID: fmt.Sprintf("item_%d", s.nextItem), name: name, idx: s.nextItem}
+	s.nextItem++
+	s.fnItems[id] = it
+	s.fnOrder = append(s.fnOrder, id)
+	return it, true
+}
+
+// outputItem function_call item 的 JSON 表示（added / done 共用，status 不同）。
+func (it *respFnItem) outputItem(id, status string) map[string]interface{} {
+	return map[string]interface{}{
+		"type": "function_call", "id": it.itemID, "call_id": id,
+		"name": it.name, "arguments": it.args, "status": status,
 	}
 }
 
@@ -145,54 +179,70 @@ func (s *responsesSSEState) convertEvent(ev *pb.StreamEvent) string {
 		var out string
 		if s.textItem == "" {
 			s.textItem = fmt.Sprintf("item_%d", s.nextItem)
+			s.textIdx = s.nextItem
 			s.nextItem++
 			out += respEvent("response.output_item.added", map[string]interface{}{
-				"output_index": 0, "item": map[string]interface{}{
+				"output_index": s.textIdx, "item": map[string]interface{}{
 					"type": "message", "id": s.textItem, "role": "assistant", "status": "in_progress",
 					"content": []interface{}{map[string]interface{}{"type": "output_text", "text": ""}},
 				},
 			})
 		}
+		s.text += e.ContentDelta.Text
 		out += respEvent("response.output_text.delta", map[string]interface{}{
-			"item_id": s.textItem, "output_index": 0, "content_index": 0,
+			"item_id": s.textItem, "output_index": s.textIdx, "content_index": 0,
 			"delta": e.ContentDelta.Text,
 		})
 		return out
 
 	case *pb.StreamEvent_ToolCallDelta:
-		itemID, ok := s.fnItems[e.ToolCallDelta.Id]
+		id, name := s.tools.resolve(e.ToolCallDelta)
+		it, needStart := s.addFn(id, name)
 		var out string
-		if !ok {
-			itemID = fmt.Sprintf("item_%d", s.nextItem)
-			s.nextItem++
-			s.fnItems[e.ToolCallDelta.Id] = itemID
+		if needStart {
 			out += respEvent("response.output_item.added", map[string]interface{}{
-				"output_index": len(s.fnItems), "item": map[string]interface{}{
-					"type": "function_call", "id": itemID, "call_id": e.ToolCallDelta.Id,
-					"name": e.ToolCallDelta.Name, "arguments": "", "status": "in_progress",
-				},
+				"output_index": it.idx, "item": it.outputItem(id, "in_progress"),
 			})
 		}
 		if e.ToolCallDelta.ArgumentsDelta != "" {
+			it.args += e.ToolCallDelta.ArgumentsDelta
 			out += respEvent("response.function_call_arguments.delta", map[string]interface{}{
-				"item_id": itemID, "output_index": len(s.fnItems),
+				"item_id": it.itemID, "output_index": it.idx,
 				"delta": e.ToolCallDelta.ArgumentsDelta,
 			})
 		}
 		return out
 
 	case *pb.StreamEvent_MessageFinish:
-		s.usage = e.MessageFinish.Usage
 		var out string
+		// 输出项必须逐个 output_item.done 收尾：Codex CLI 只认 done 事件里的
+		// function_call（缺了它工具不会被调度执行，表现为「复杂操作无回复」）。
+		var output []interface{}
 		if s.textItem != "" {
 			out += respEvent("response.output_text.done", map[string]interface{}{
-				"item_id": s.textItem, "output_index": 0, "content_index": 0, "text": "",
+				"item_id": s.textItem, "output_index": s.textIdx, "content_index": 0, "text": s.text,
 			})
+			item := map[string]interface{}{
+				"type": "message", "id": s.textItem, "role": "assistant", "status": "completed",
+				"content": []interface{}{map[string]interface{}{
+					"type": "output_text", "text": s.text, "annotations": []interface{}{},
+				}},
+			}
 			out += respEvent("response.output_item.done", map[string]interface{}{
-				"output_index": 0, "item": map[string]interface{}{
-					"type": "message", "id": s.textItem, "role": "assistant", "status": "completed",
-				},
+				"output_index": s.textIdx, "item": item,
 			})
+			output = append(output, item)
+		}
+		for _, id := range s.fnOrder {
+			it := s.fnItems[id]
+			out += respEvent("response.function_call_arguments.done", map[string]interface{}{
+				"item_id": it.itemID, "output_index": it.idx, "arguments": it.args,
+			})
+			item := it.outputItem(id, "completed")
+			out += respEvent("response.output_item.done", map[string]interface{}{
+				"output_index": it.idx, "item": item,
+			})
+			output = append(output, item)
 		}
 		// usage 为必填字段，缺失时补零值（Codex 严格反序列化，否则断流）。
 		var inTok, outTok int64
@@ -207,7 +257,7 @@ func (s *responsesSSEState) convertEvent(ev *pb.StreamEvent) string {
 		out += respEvent("response.completed", map[string]interface{}{
 			"response": map[string]interface{}{
 				"id": s.respID, "object": "response", "model": s.model,
-				"status": "completed", "usage": usage,
+				"status": "completed", "output": output, "usage": usage,
 			},
 		})
 		return out
@@ -228,6 +278,8 @@ type responsesAggregate struct {
 	model  string
 	text   string
 	tools  map[string]*aggrTool
+	track  toolCallTracker
+	order  []string
 	finish string
 	input  int64
 	output int64
@@ -240,13 +292,15 @@ func (a *responsesAggregate) feed(ev *pb.StreamEvent) {
 	case *pb.StreamEvent_ContentDelta:
 		a.text += e.ContentDelta.Text
 	case *pb.StreamEvent_ToolCallDelta:
+		id, name := a.track.resolve(e.ToolCallDelta)
 		if a.tools == nil {
 			a.tools = map[string]*aggrTool{}
 		}
-		t, ok := a.tools[e.ToolCallDelta.Id]
+		t, ok := a.tools[id]
 		if !ok {
-			t = &aggrTool{id: e.ToolCallDelta.Id, name: e.ToolCallDelta.Name}
-			a.tools[e.ToolCallDelta.Id] = t
+			t = &aggrTool{id: id, name: name}
+			a.tools[id] = t
+			a.order = append(a.order, id)
 		}
 		t.input += e.ToolCallDelta.ArgumentsDelta
 	case *pb.StreamEvent_MessageFinish:
@@ -262,13 +316,16 @@ func (a *responsesAggregate) result() map[string]interface{} {
 	if a.text != "" {
 		output = append(output, map[string]interface{}{
 			"type": "message", "id": "item_0", "role": "assistant", "status": "completed",
-			"content": []interface{}{map[string]interface{}{"type": "output_text", "text": a.text}},
+			"content": []interface{}{map[string]interface{}{
+				"type": "output_text", "text": a.text, "annotations": []interface{}{},
+			}},
 		})
 	}
-	for _, id := range sortedKeys(a.tools) {
+	// 工具项按出现顺序输出（顺序与流式编码器一致）
+	for _, id := range a.order {
 		t := a.tools[id]
 		output = append(output, map[string]interface{}{
-			"type": "function_call", "call_id": t.id, "name": t.name,
+			"type": "function_call", "id": "item_" + id, "call_id": t.id, "name": t.name,
 			"arguments": t.input, "status": "completed",
 		})
 	}

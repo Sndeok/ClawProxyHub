@@ -1,5 +1,45 @@
 # Changelog
 
+## 二开改动（Sndeok fork，基于 v1.0.2）
+
+面向「Codex → new-api → cph → 上游」链路的排查与修复，核心侧改动只需替换二进制即可生效。
+
+- Fixed 工具调用（function calling）链路完全不可用：OpenAI 方言上游只在首个增量带
+  `tool_calls[].id/name`，`sdk/openaiup` 把后续增量的空 id 原样透传，而核心按 id 分组，
+  导致同一调用被拆成「空 id 的新块」，客户端拿到残缺 tool_calls（表现为一般对话正常、
+  一涉及查看链接等工具操作就没回复）。新增 `internal/gateway/toolcall.go` 统一归一，
+  三协议（chat_completions / messages / responses）编码器共用；老插件无需重编即恢复。
+- Fixed `/v1/responses` 流式缺 `response.output_item.done`（function_call）：Codex CLI
+  只认 done 事件里的工具调用，缺失时工具永不执行。同时补齐
+  `response.function_call_arguments.done`，`output_index` 改为按项递增，
+  `response.completed` 带上 `output` 与 `usage`，`output_text.done` 回填完整文本。
+- Fixed 插件宿主回调（日志 / 状态存储 / 读设置）在插件启动 5 秒后永久失效：
+  go-plugin 的 broker 发出 ConnInfo 后只保留 5 秒，SDK 懒加载拨号必然错过，
+  且失败被 `sync.Once` 缓存成终态；首次请求还会白等 5 秒。改为启动阶段异步
+  warmup + 失败退避重试（需重新构建插件）。
+- Fixed 插件子进程 stderr 被 go-plugin 吞掉（只记「收到 N 字节」）：现按行转发为核心
+  日志并加 `[plugin:<name>]` 前缀，插件自身诊断不再丢失。
+- Fixed 日志「总耗时」口径错误：原由各调用方传入局部 `time.Since(start)`，流式请求
+  只统计首事件之后的输出阶段，出现「首字 5001ms、总耗时 1ms」。统一以 serve 入口为
+  基准，在 `requestLogCtx.write` 内计算。
+- Added 调用日志分页与多维过滤：`GET /admin/logs` 支持 page/page_size（≤200）、
+  key_id、plugin_id、account_id、protocol、model、status(ok/error/4xx/5xx)、q、
+  from/to、min_latency，返回 total/has_more；旧 `limit` 参数仍兼容。
+  同时消除旧实现「每查一页日志就全表扫 keys」的 O(n) 开销（改为只反查当前页出现的 id）。
+- Added 迁移 000003：`request_logs` 增加 requested_model（请求模型 / 路由别名）、
+  route_id、group_id、stream、finish_reason、attempts（含重试换号降级的尝试次数）、
+  error_type 与两个过滤索引。
+- Added 日志保留策略 `logs.retention_days`（0 = 永久保留）+ 手动清理
+  `POST /admin/logs/cleanup`（N 天前 / 全部），后台每 6 小时自动清理一次。
+- Added 插件市场出站代理 `network.market_proxy`（也可用 `CPH_MARKET_PROXY` 设默认）：
+  拉取索引与下载 .cphplugin 共用，支持 socks5 / socks5h / http / https，
+  省略协议头按 socks5 处理、域名交代理解析；与原有 `network.github_proxy`
+  （URL 前缀改写）并存。新增 `POST /admin/settings/test-market` 供页面自检连通性。
+- Changed 默认插件市场地址改为自建插件仓库
+  `https://raw.githubusercontent.com/Sndeok/ClawProxyHubPlugins/main/index.json`。
+- Changed 仪表盘日志页重写：过滤条、服务端分页、请求模型/上游模型/流式/尝试次数列、
+  行详情抽屉、自动刷新、清理日志；设置页新增日志保留天数与市场代理（含测试连接）。
+
 ## v1.0.2
 
 - Fixed `CPH_SEED_API_KEY` 每次重启重复创建密钥：AES-GCM 随机 nonce 导致等值查重永不命中；改用 SHA-256 hash 判重

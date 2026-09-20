@@ -175,6 +175,7 @@ type anthSSEState struct {
 	textBlock    int // 当前文本块 index；-1 未开
 	nextBlock    int
 	toolBlocks   map[string]int // tool_call id → block index
+	tools        toolCallTracker
 	stopReason   string
 	inputTokens  int64
 	outputTokens int64
@@ -225,19 +226,20 @@ func (s *anthSSEState) convertEvent(ev *pb.StreamEvent) string {
 		return out
 
 	case *pb.StreamEvent_ToolCallDelta:
-		idx, ok := s.toolBlocks[e.ToolCallDelta.Id]
+		id, name := s.tools.resolve(e.ToolCallDelta)
+		idx, ok := s.toolBlocks[id]
 		if !ok {
 			idx = s.nextBlock
 			s.nextBlock++
-			s.toolBlocks[e.ToolCallDelta.Id] = idx
+			s.toolBlocks[id] = idx
 		}
 		var out string
 		if !ok {
 			out += anthEvent("content_block_start", map[string]interface{}{
 				"type": "content_block_start", "index": idx,
 				"content_block": map[string]interface{}{
-					"type": "tool_use", "id": e.ToolCallDelta.Id,
-					"name": e.ToolCallDelta.Name, "input": map[string]interface{}{},
+					"type": "tool_use", "id": id,
+					"name": name, "input": map[string]interface{}{},
 				},
 			})
 		}
@@ -310,6 +312,7 @@ type anthAggregate struct {
 	model   string
 	text    string
 	tools   map[string]*aggrTool
+	track   toolCallTracker
 	stop    string
 	input   int64
 	output  int64
@@ -329,13 +332,14 @@ func (a *anthAggregate) feed(ev *pb.StreamEvent) {
 	case *pb.StreamEvent_ContentDelta:
 		a.text += e.ContentDelta.Text
 	case *pb.StreamEvent_ToolCallDelta:
-		t, ok := a.tools[e.ToolCallDelta.Id]
+		id, name := a.track.resolve(e.ToolCallDelta)
+		if a.tools == nil {
+			a.tools = map[string]*aggrTool{}
+		}
+		t, ok := a.tools[id]
 		if !ok {
-			if a.tools == nil {
-				a.tools = map[string]*aggrTool{}
-			}
-			t = &aggrTool{id: e.ToolCallDelta.Id, name: e.ToolCallDelta.Name}
-			a.tools[e.ToolCallDelta.Id] = t
+			t = &aggrTool{id: id, name: name}
+			a.tools[id] = t
 		}
 		t.input += e.ToolCallDelta.ArgumentsDelta
 	case *pb.StreamEvent_MessageFinish:

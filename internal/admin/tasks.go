@@ -305,48 +305,7 @@ func (s *Server) dashboardTrend(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"trend": points})
 }
 
-// ---------- 请求日志 / 概览 ----------
-
-// listLogs GET /admin/logs?limit=100&key_id= — 调用日志（key_name 由 keys 表聚合）。
-func (s *Server) listLogs(w http.ResponseWriter, r *http.Request) {
-	limit := 100
-	if n := parseInt(r.URL.Query().Get("limit")); n > 0 && n <= 1000 {
-		limit = int(n)
-	}
-	q := s.db.Model(&model.RequestLog{})
-	if kid := parseInt(r.URL.Query().Get("key_id")); kid > 0 {
-		q = q.Where("key_id = ?", kid)
-	}
-	var logs []model.RequestLog
-	if err := q.Order("id DESC").Limit(limit).Find(&logs).Error; err != nil {
-		http.Error(w, `{"error":"db"}`, http.StatusInternalServerError)
-		return
-	}
-	// 密钥名称映射（id → name，日志展示用）
-	type keyName struct {
-		ID   int64
-		Name string
-	}
-	var keys []keyName
-	s.db.Model(&model.Key{}).Select("id, name").Scan(&keys)
-	keyNames := map[int64]string{}
-	for _, k := range keys {
-		keyNames[k.ID] = k.Name
-	}
-	type logView struct {
-		model.RequestLog
-		KeyName string `json:"key_name"` // 密钥名称（空 = 匿名/无密钥）
-	}
-	out := make([]logView, 0, len(logs))
-	for _, l := range logs {
-		v := logView{RequestLog: l}
-		if l.KeyID != nil {
-			v.KeyName = keyNames[*l.KeyID]
-		}
-		out = append(out, v)
-	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"logs": out})
-}
+// ---------- 概览 ----------
 
 // dashboardQuota GET /admin/stats/quota — 按插件聚合账号积分快照（credits_json，
 // 插件解析上游后持久化）与 profile.quota 兜底；仅对可解析为数字的值求和，无数据的插件不返回。

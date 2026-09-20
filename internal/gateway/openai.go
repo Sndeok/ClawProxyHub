@@ -131,6 +131,7 @@ type openaiSSEState struct {
 	// tool call 聚合（OpenAI 的 delta.tool_calls 用 index 标识）
 	toolIdx map[string]int
 	nextIdx int
+	tools   toolCallTracker
 }
 
 func newOpenAISSEState() *openaiSSEState {
@@ -150,20 +151,23 @@ func (s *openaiSSEState) convertEvent(ev *pb.StreamEvent) string {
 		}, "")
 
 	case *pb.StreamEvent_ToolCallDelta:
-		idx, ok := s.toolIdx[e.ToolCallDelta.Id]
+		id, name := s.tools.resolve(e.ToolCallDelta)
+		idx, ok := s.toolIdx[id]
 		if !ok {
 			idx = s.nextIdx
 			s.nextIdx++
-			s.toolIdx[e.ToolCallDelta.Id] = idx
+			s.toolIdx[id] = idx
 		}
+		// 首块带 id/type/name，后续增量只带 arguments（OpenAI 流式惯例）
+		tc := map[string]interface{}{"index": idx}
 		fn := map[string]interface{}{"arguments": e.ToolCallDelta.ArgumentsDelta}
 		if !ok {
-			fn["name"] = e.ToolCallDelta.Name
+			tc["id"], tc["type"] = id, "function"
+			fn["name"] = name
 		}
+		tc["function"] = fn
 		return s.chunk(map[string]interface{}{
-			"tool_calls": []interface{}{map[string]interface{}{
-				"index": idx, "id": e.ToolCallDelta.Id, "type": "function", "function": fn,
-			}},
+			"tool_calls": []interface{}{tc},
 		}, "")
 
 	case *pb.StreamEvent_MessageFinish:
@@ -207,6 +211,7 @@ type openaiAggregate struct {
 	model  string
 	text   string
 	tools  map[string]*aggrTool
+	track  toolCallTracker
 	finish string
 	input  int64
 	output int64
@@ -219,13 +224,14 @@ func (a *openaiAggregate) feed(ev *pb.StreamEvent) {
 	case *pb.StreamEvent_ContentDelta:
 		a.text += e.ContentDelta.Text
 	case *pb.StreamEvent_ToolCallDelta:
+		id, name := a.track.resolve(e.ToolCallDelta)
 		if a.tools == nil {
 			a.tools = map[string]*aggrTool{}
 		}
-		t, ok := a.tools[e.ToolCallDelta.Id]
+		t, ok := a.tools[id]
 		if !ok {
-			t = &aggrTool{id: e.ToolCallDelta.Id, name: e.ToolCallDelta.Name}
-			a.tools[e.ToolCallDelta.Id] = t
+			t = &aggrTool{id: id, name: name}
+			a.tools[id] = t
 		}
 		t.input += e.ToolCallDelta.ArgumentsDelta
 	case *pb.StreamEvent_MessageFinish:

@@ -1,5 +1,5 @@
 [submodule "plugins"]
 	path = plugins
-	url = https://github.com/ShadowSmallBaby/ClawProxyHubPlugins.git
+	url = https://github.com/Sndeok/ClawProxyHubPlugins.git
 	branch = main
 	shallow = true

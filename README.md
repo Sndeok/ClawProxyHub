@@ -47,7 +47,7 @@ docker compose up -d   # 管理密码在 docker-compose.yml 中配置
 
 ### 使用流程
 
-1. **装插件**：「插件」→ 插件市场 → 安装（GitHub 不通时可在「设置」配置加速代理或自建市场地址）
+1. **装插件**：「插件」→ 插件市场 → 安装（GitHub 不通时可在「设置」填写自建市场地址，或配置 SOCKS5 / HTTP 代理；也可用 `CPH_MARKET_PROXY` 设默认代理）
 2. **添加账号**：「账号」→ 添加 → 选择插件与授权方式
    - lobsterai：浏览器 OAuth / 凭据文件导入
    - workbuddy：手机验证码 / 浏览器授权 / 凭据文件导入
@@ -67,7 +67,7 @@ Claude Code 等客户端把 base URL 指向 `http://127.0.0.1:8080`，任意协�
 
 ## 配置（环境变量）
 
-见 [.env.example](.env.example)。核心项：`CPH_ADDR`、`CPH_DATA_DIR`、`CPH_ADMIN_USERNAME/PASSWORD`（仅首启引导，之后以数据库为准）、`CPH_MARKETPLACE_URL`（自建市场索引）。
+见 [.env.example](.env.example)。核心项：`CPH_ADDR`、`CPH_DATA_DIR`、`CPH_ADMIN_USERNAME/PASSWORD`（仅首启引导，之后以数据库为准）、`CPH_MARKETPLACE_URL`（市场索引地址）、`CPH_MARKET_PROXY`（市场出站代理，如 `socks5://192.168.1.10:1080`）。两项都只是首启默认值，之后以仪表盘「设置」为准。
 
 ## 插件开发
 

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"time"
 
 	pb "github.com/ShadowSmallBaby/ClawProxyHub/sdk/proto/cphv1"
 )
@@ -56,19 +55,19 @@ func (s *Server) streamOut(w http.ResponseWriter, events chan *pb.StreamEvent, f
 	w.Header().Set("Cache-Control", "no-cache")
 	flusher, _ := w.(http.Flusher)
 
-	start := time.Now()
 	log.status = http.StatusOK
 
 	emit := func(ev *pb.StreamEvent) bool {
 		if failed, ok := ev.Event.(*pb.StreamEvent_TaskFailed); ok && failed.TaskFailed != nil {
 			log.status = http.StatusBadGateway
+			log.errorType = "upstream_error"
 			log.errBrief = failed.TaskFailed.Error.GetMessage()
 			errPayload, _ := json.Marshal(map[string]interface{}{
 				"error": map[string]interface{}{
 					"type":    "upstream_error",
 					"message": failed.TaskFailed.Error.GetMessage(),
 					"code":    failed.TaskFailed.Error.GetCode(),
-					},
+				},
 			})
 			io.WriteString(w, "data: "+string(errPayload)+"\n\n")
 			if flusher != nil {
@@ -88,7 +87,7 @@ func (s *Server) streamOut(w http.ResponseWriter, events chan *pb.StreamEvent, f
 
 	if first != nil && !emit(first) {
 		io.WriteString(w, enc.finish())
-		log.write(s.db, time.Since(start))
+		log.write(s.db)
 		return
 	}
 	for ev := range events {
@@ -98,7 +97,7 @@ func (s *Server) streamOut(w http.ResponseWriter, events chan *pb.StreamEvent, f
 	}
 	drain(events)
 	io.WriteString(w, enc.finish())
-	log.write(s.db, time.Since(start))
+	log.write(s.db)
 }
 
 // nonStreamOut 聚合：完整 JSON 一次写回。first 为已取出的首事件。
@@ -109,7 +108,6 @@ func (s *Server) nonStreamOut(w http.ResponseWriter, events chan *pb.StreamEvent
 		return 0, ""
 	}
 	a := aggr[0]
-	start := time.Now()
 
 	handle := func(ev *pb.StreamEvent) bool {
 		if failed, ok := ev.Event.(*pb.StreamEvent_TaskFailed); ok && failed.TaskFailed != nil {
@@ -134,13 +132,14 @@ func (s *Server) nonStreamOut(w http.ResponseWriter, events chan *pb.StreamEvent
 	}
 	log.status = http.StatusOK
 	writeJSON(w, http.StatusOK, a.result())
-	log.write(s.db, time.Since(start))
+	log.write(s.db)
 	return 0, ""
 }
 
-// collectUsage 从 MessageFinish 事件提取用量。
+// collectUsage 从 MessageFinish 事件提取用量与结束原因（排查断流/工具调用时看它）。
 func collectUsage(log *requestLogCtx, ev *pb.StreamEvent) {
 	if fin, ok := ev.Event.(*pb.StreamEvent_MessageFinish); ok && fin.MessageFinish != nil {
+		log.finishReason = fin.MessageFinish.FinishReason
 		if u := fin.MessageFinish.Usage; u != nil {
 			log.input, log.output, log.cached = u.InputTokens, u.OutputTokens, u.CachedTokens
 		}

@@ -170,24 +170,34 @@ type TaskRun struct {
 
 func (TaskRun) TableName() string { return "task_runs" }
 
-// RequestLog 调用日志。
+// RequestLog 调用日志。诊断字段（迁移 000003）用于在仪表盘上直接定位问题，
+// 不必再翻进程 stdout。
 type RequestLog struct {
-	ID           int64 `gorm:"primaryKey;autoIncrement"`
-	KeyID        *int64
-	PluginID     *int64
-	AccountID    *int64
-	Model        string `gorm:"size:128;default:''"`
-	Protocol     string `gorm:"size:32;default:''"`
-	Status       int32
-	InputTokens  int32     `gorm:"column:input_tokens;default:0"`
-	OutputTokens int32     `gorm:"column:output_tokens;default:0"`
-	LatencyMs    int32     `gorm:"column:latency_ms;default:0"`
-	FirstTokenMs int32     `gorm:"column:first_token_ms;default:0"` // 首字耗时
-	CachedTokens int32     `gorm:"column:cached_tokens;default:0"`  // 缓存命中 token
-	ClientIP     string    `gorm:"column:client_ip;size:64;default:''"`
-	UserAgent    string    `gorm:"column:user_agent;size:256;default:''"`
-	ErrorBrief   string    `gorm:"column:error_brief;size:512;default:''"`
-	CreatedAt    time.Time `gorm:"index"`
+	ID        int64 `gorm:"primaryKey;autoIncrement"`
+	KeyID     *int64
+	PluginID  *int64
+	AccountID *int64
+	// RequestedModel 客户端请求的模型名（配置路由时为对外别名）；Model 是最终
+	// 投递上游的真实模型名。两者不一致即说明路由改写生效。
+	RequestedModel string `gorm:"column:requested_model;size:128;default:''"`
+	Model          string `gorm:"size:128;default:''"`
+	RouteID        *int64 `gorm:"column:route_id"` // 命中的路由（非路由调用为空）
+	GroupID        *int64 `gorm:"column:group_id"` // 命中的分组（决定出站代理）
+	Protocol       string `gorm:"size:32;default:''"`
+	Stream         bool   `gorm:"column:stream;default:false"` // 客户端是否请求流式
+	Status         int32
+	FinishReason   string `gorm:"column:finish_reason;size:32;default:''"` // stop/tool_calls/length...
+	Attempts       int32  `gorm:"column:attempts;default:1"`              // 含重试/换号/降级的总尝试次数
+	ErrorType      string `gorm:"column:error_type;size:32;default:''"`   // 空 = 成功
+	InputTokens    int32  `gorm:"column:input_tokens;default:0"`
+	OutputTokens   int32  `gorm:"column:output_tokens;default:0"`
+	LatencyMs      int32  `gorm:"column:latency_ms;default:0"`
+	FirstTokenMs   int32  `gorm:"column:first_token_ms;default:0"` // 首字耗时
+	CachedTokens   int32  `gorm:"column:cached_tokens;default:0"`  // 缓存命中 token
+	ClientIP       string `gorm:"column:client_ip;size:64;default:''"`
+	UserAgent      string `gorm:"column:user_agent;size:256;default:''"`
+	ErrorBrief     string `gorm:"column:error_brief;size:512;default:''"`
+	CreatedAt      time.Time `gorm:"index"`
 }
 
 func (RequestLog) TableName() string { return "request_logs" }
