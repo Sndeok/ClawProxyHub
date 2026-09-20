@@ -75,8 +75,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/accounts/{id}/pause", s.auth(s.pauseAccount))
 	mux.HandleFunc("POST /admin/accounts/{id}/resume", s.auth(s.resumeAccount))
 	mux.HandleFunc("PUT /admin/accounts/{id}", s.auth(s.updateAccount))
+	mux.HandleFunc("PUT /admin/accounts/{id}/models", s.auth(s.saveAccountModels))
+	mux.HandleFunc("GET /admin/accounts/{id}/proxies", s.auth(s.listAccountProxies))
+	mux.HandleFunc("PUT /admin/accounts/{id}/proxies", s.auth(s.bindAccountProxies))
+	mux.HandleFunc("POST /admin/accounts/{id}/test", s.auth(s.testAccount))
 	mux.HandleFunc("GET /admin/keys", s.auth(s.listKeys))
 	mux.HandleFunc("GET /admin/keys/{id}/reveal", s.auth(s.revealKey))
+	mux.HandleFunc("PUT /admin/keys/{id}", s.auth(s.updateKey))
 	mux.HandleFunc("POST /admin/keys", s.auth(s.createKey))
 	mux.HandleFunc("DELETE /admin/keys/{id}", s.auth(s.deleteKey))
 	mux.HandleFunc("POST /admin/keys/{id}/toggle", s.auth(s.toggleKey))
@@ -88,7 +93,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/groups/{id}/proxies", s.auth(s.listGroupProxies))
 	mux.HandleFunc("GET /admin/proxies", s.auth(s.listProxies))
 	mux.HandleFunc("POST /admin/proxies", s.auth(s.createProxy))
+	mux.HandleFunc("PUT /admin/proxies/{id}", s.auth(s.updateProxy))
 	mux.HandleFunc("DELETE /admin/proxies/{id}", s.auth(s.deleteProxy))
+	mux.HandleFunc("POST /admin/proxies/{id}/test", s.auth(s.testProxy))
 	mux.HandleFunc("GET /admin/routes", s.auth(s.listRoutes))
 	mux.HandleFunc("POST /admin/routes", s.auth(s.createRoute))
 	mux.HandleFunc("PUT /admin/routes/{id}", s.auth(s.updateRoute))
@@ -107,6 +114,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/stats", s.auth(s.dashboardStats))
 	mux.HandleFunc("GET /admin/stats/quota", s.auth(s.dashboardQuota))
 	mux.HandleFunc("GET /admin/stats/trend", s.auth(s.dashboardTrend))
+	mux.HandleFunc("GET /admin/version", s.auth(s.coreVersion))
 	return mux
 }
 

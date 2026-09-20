@@ -1,5 +1,57 @@
 # Changelog
 
+## 移植上游 v1.0.2 / v1.0.3（B+C+D 批）
+
+上游 6 个提交经逐条比对后**选择性移植**（未采用 git merge，原因见文末）。
+v1.0.2 的工具调用与 Responses 收尾修复本仓库此前已用另一套实现独立修好，
+此处仅补上当时漏掉的三处。
+
+**Codex 兼容（v1.0.2 补齐）**
+- Fixed 不再透传 `reasoning` / `reasoning.effort`：Responses 本无顶层 reasoning_effort，
+  Codex 的 `xhigh` 等私有值上游不认会 500
+- Fixed 合并相邻 assistant message 与 function_call 进同一条 assistant 的 tool_calls：
+  并行工具调用时 tool 消息与声明它的 assistant 错位，上游拒绝整段历史
+- Fixed function_call 的 `arguments` 为空时补 `{}`
+
+**账号（v1.0.3）**
+- Added 账号级出站代理（`account_proxies`，优先级 账号 > 分组），账号编辑弹窗可绑定
+- Added 账号模型目录落库（`accounts.models_json`）：首次登录自动拉取，`?refresh=1` 手动同步，
+  读取默认走库，以用户勾选为准
+- Added 账号在线测试：选端点/模型/问题直调插件 Chat，绕过路由与密钥，不落 `request_logs`
+- Added 账号编辑弹窗（改名 / 分组 / 代理 / 模型）
+
+**出站代理与密钥（v1.0.3）**
+- Added 代理编辑 `PUT /admin/proxies/{id}`（密码留空保留原值）与连通性测试
+  `POST /admin/proxies/{id}/test`（经代理拨中立目标回时延，socks5 走 `x/net/proxy`）
+- Added 密钥改名 `PUT /admin/keys/{id}`
+- Added 前端通用可搜索绑定组件 `BindSelect`
+
+**其它（v1.0.3）**
+- Added 进程内事件总线（`internal/event`）：任务成功完成后自动刷新该账号积分
+- Added 核心版本机制（`internal/version` + `version.json`）与检查更新 `GET /admin/version`，
+  侧栏底部显示版本、有新版本时可跳发布页；远端清单与插件市场共用出站代理配置
+
+**迁移**
+- Added 迁移 `000004_account_proxy_models`：`account_proxies` 表 + `accounts.models_json`。
+  上游把这份 schema 放在重写后的 000002；本仓库 000002(key_hash)/000003(调用日志) 已发布且
+  生产库已执行到 version 3，若沿用 000002 该变更将永不执行，故按序追加为 000004。
+- Added `internal/database/migrate_test.go`：迁移编号必须连续、up/down 成对，
+  并模拟「上一版存量库」验证新迁移确实会执行、且不会破坏既有 schema。
+
+## 与上游的有意分歧（保留本仓库实现）
+
+上游 main 在 v1.0.2/v1.0.3 期间**回退**了若干既有加固，本仓库继续保留：
+
+| 项 | 上游做法 | 本仓库 |
+|---|---|---|
+API Key 鉴权 | 去掉 `key_hash`，退回全量解密扫描 | 保留 `key_hash` 等值索引（O(1)） |
+插件 KV 存储 | 改纯内存，删 `plugin_storage` 持久化 | 保留按插件隔离的持久化 |
+插件 gRPC 取消 | `Chat` 去掉 ctx，改 `context.Background()` | 保留可取消 ctx（重试/超时可中断） |
+请求体限制 | 删掉 32MB 预检 | 保留 32MB 预检（超限 413） |
+流式错误告知 | 删掉失败时下发的 SSE 错误事件与 `drain` | 保留（客户端能感知上游失败） |
+删分组清理 | `deleteGroup` 退回裸 `Delete` | 保留事务式清理路由 `groups_json`/降级指向 |
+`internal/util.TruncStr` | 删除整个包 | 保留（多处在用） |
+
 ## 二开改动（Sndeok fork，基于 v1.0.2）
 
 面向「Codex → new-api → cph → 上游」链路的排查与修复，核心侧改动只需替换二进制即可生效。

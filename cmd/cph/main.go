@@ -17,6 +17,7 @@ import (
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/admin"
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/config"
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/database"
+	"github.com/ShadowSmallBaby/ClawProxyHub/internal/event"
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/gateway"
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/model"
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/plugin"
@@ -112,11 +113,15 @@ func run() error {
 	syncPluginRecords(db, plugins)
 	defer plugins.StopAll()
 
-	engine := task.NewEngine(db, cfg.DataDir, task.NewPluginRunner(plugins))
+	// 进程内事件总线：任务执行成功后通知账号服务刷新积分等派生状态
+	bus := event.New()
+	accounts := accountpkg.New(db, cfg.DataDir, plugins)
+	accounts.SubscribeRefresh(ctx, bus)
+
+	engine := task.NewEngine(db, cfg.DataDir, task.NewPluginRunner(plugins), bus)
 	engine.Start(ctx)
 	defer engine.Stop()
 
-	accounts := accountpkg.New(db, cfg.DataDir, plugins)
 	settings := setting.New(db)
 	// 调用日志保留策略（settings.logs.retention_days，0 = 永久保留）
 	admin.StartLogRetention(ctx, db, settings)

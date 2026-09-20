@@ -11,8 +11,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/account"
+	"github.com/ShadowSmallBaby/ClawProxyHub/internal/event"
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/model"
-	"github.com/ShadowSmallBaby/ClawProxyHub/internal/util"
 	pb "github.com/ShadowSmallBaby/ClawProxyHub/sdk/proto/cphv1"
 )
 
@@ -29,12 +29,13 @@ type Engine struct {
 	db      *gorm.DB
 	dataDir string
 	runner  Runner
+	bus     *event.Bus
 	stop    chan struct{}
 }
 
 // NewEngine 创建调度引擎。
-func NewEngine(db *gorm.DB, dataDir string, runner Runner) *Engine {
-	return &Engine{db: db, dataDir: dataDir, runner: runner, stop: make(chan struct{})}
+func NewEngine(db *gorm.DB, dataDir string, runner Runner, bus *event.Bus) *Engine {
+	return &Engine{db: db, dataDir: dataDir, runner: runner, bus: bus, stop: make(chan struct{})}
 }
 
 // Start 启动扫描循环。残留的 running 记录（上次进程异常退出）标记为 failed。
@@ -144,16 +145,16 @@ func (e *Engine) executeRule(ctx context.Context, rule *model.TaskRule) {
 		resp, err := e.runner.RunTask(ctx, pluginNameByID(e.db, rule.PluginID), req)
 		if err != nil {
 			run.Status = "failed"
-			run.ErrorMessage = util.TruncStr(err.Error(), 1000)
+			run.ErrorMessage = truncate(err.Error(), 1000)
 		} else if resp.Error != nil && resp.Error.Code != 0 {
 			run.Status = "failed"
-			run.ErrorMessage = util.TruncStr(resp.Error.Message, 1000)
+			run.ErrorMessage = truncate(resp.Error.Message, 1000)
 		} else {
 			run.Status = "success"
-			run.Summary = util.TruncStr(resp.Summary, 1000)
+			run.Summary = truncate(resp.Summary, 1000)
 			// 结构化明细快照（如成长任务列表）持久化，账号详情弹窗直接渲染
 			if len(resp.DetailJson) > 0 {
-				run.DetailJSON = util.TruncStr(resp.DetailJson, 1<<20)
+				run.DetailJSON = truncate(resp.DetailJson, 1<<20)
 			}
 			// 凭据变更（如 token 刷新）回写账号
 			if resp.Changed && acct != nil && len(resp.Blob) > 0 {
@@ -167,6 +168,10 @@ func (e *Engine) executeRule(ctx context.Context, rule *model.TaskRule) {
 		fin := time.Now()
 		run.FinishedAt = &fin
 		e.db.Save(&run)
+
+		if run.Status == "success" && acct != nil && e.bus != nil {
+			e.bus.Publish(event.Event{Topic: event.TopicTaskCompleted, AccountID: acct.ID})
+		}
 	}
 }
 
@@ -267,6 +272,13 @@ func pluginNameByID(db *gorm.DB, id int64) string {
 		return ""
 	}
 	return p.Name
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 // ScheduleOnce 创建一条立即执行的 once 规则（手动触发/失败重跑都用它）。
