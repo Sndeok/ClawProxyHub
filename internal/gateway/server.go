@@ -433,7 +433,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key *model.Key, r
 	}
 
 	attemptCtx, attemptCancel := context.WithCancel(r.Context())
-	defer attemptCancel()
+	// 闭包捕获变量：重试换新 context 后，defer 取消的是最后一个（避免泄漏）
+	defer func() { attemptCancel() }()
 
 	for attempt := 0; ; attempt++ {
 		events, err := s.plugins.Chat(attemptCtx, req, pluginName, cred)
@@ -445,6 +446,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key *model.Key, r
 				continue
 			}
 			failWith(http.StatusBadGateway, "upstream_error", err.Error())
+			attemptCancel()
 			return
 		}
 		// 首事件超时兜底：插件/上游挂死时按配置时限返回 504，而不是让客户端永久等待
@@ -465,6 +467,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key *model.Key, r
 				}
 				failWith(http.StatusGatewayTimeout, "upstream_error",
 					fmt.Sprintf("upstream produced no events within %s (check proxy / upstream reachability)", timeout))
+				attemptCancel()
 				return
 			}
 		}
@@ -480,23 +483,29 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, key *model.Key, r
 					continue
 				}
 				finishUnrecovered(code, brief, transient)
+				attemptCancel()
 				return
 			}
 		}
 		// channel 无法塞回首事件，经参数带入输出层
 		if req.Stream {
 			s.streamOut(w, events, first, log, newEncoder(protocol, req.Model), nil)
+			attemptCancel()
 			return
 		}
 		if code, brief := s.nonStreamOut(w, events, first, log, newAggregate(protocol, req.Model)); code != 0 {
 			// 聚合中途失败且响应未写：尝试恢复后重试
 			retry, transient := recoverFrom(int(code), attempt, brief)
 			if retry {
+				attemptCancel()
+				attemptCtx, attemptCancel = context.WithCancel(r.Context())
 				continue
 			}
 			finishUnrecovered(code, brief, transient)
+			attemptCancel()
 			return
 		}
+		attemptCancel()
 		return
 	}
 }
@@ -607,9 +616,3 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-func util.TruncStr(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n]
-}
