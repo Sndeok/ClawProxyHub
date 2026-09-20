@@ -201,8 +201,11 @@ type Setting struct {
 
 // PluginStorage 插件持久化 KV（按插件隔离）。
 type PluginStorage struct {
-	Plugin    string gorm:"primaryKey;size:64"`n	Key       string gorm:"primaryKey;size:256"`n	Value     []byte
-	UpdatedAt time.Time gorm:"column:updated_at"`n}
+	Plugin    string `gorm:"primaryKey;size:64"`
+	Key       string `gorm:"primaryKey;size:256"`
+	Value     []byte
+	UpdatedAt time.Time `gorm:"column:updated_at"`
+}
 
 func (PluginStorage) TableName() string { return "plugin_storage" }
 
