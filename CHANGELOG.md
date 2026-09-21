@@ -20,8 +20,15 @@
 - Changed `Accounts.vue` 抽出 `AccountDetailDrawer.vue`（账号详情 + 动态区块 + 任务历史渲染）。
 - Changed `TokenCell` 用 SVG 图标 + 文字标签替代 `↓↑⚡` 符号（可访问性：不靠符号单独表意）。
 
+**账号页拆分（同一批完成）**
+- `Accounts.vue` 1228 → 975 行，抽出三个子组件：
+  `AccountDetailDrawer`（详情 + 动态区块 + 任务历史）、`AccountEditDialog`（改名/分组/代理/模型）、
+  `AccountTestDrawer`（在线测试）。父级只保留列表与新增向导。
+- Fixed 在线测试的模型候选改为**该账号自己的**模型目录（旧实现复用编辑弹窗的残留状态，
+  切换账号后会带出上一个账号的模型）。
+
 **待办（下一步）**
-- `Accounts.vue` 仍剩「添加向导 / 编辑弹窗 / 在线测试」三块，与列表共享较多状态，需按 props/emit 重新划分。
+- `Accounts.vue` 的「新增向导」仍是最大的一块（插件选择 → 授权 → 配置三步），可作为一个独立组件抽出。
 - `Tasks.vue` 的运行状态标签可复用 `StatusTag`（当前仍是内联 t-tag，语义与 HTTP 状态不同）。
 
 ## 用量口径统一：缓存命中不再算两遍（2026-09-21）

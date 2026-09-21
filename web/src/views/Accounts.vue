@@ -137,6 +137,18 @@
     <!-- 账号详情抽屉（已抽成组件） -->
     <account-detail-drawer v-model:visible="detailVisible" :detail="detail" />
 
+    <!-- 编辑账号（组件：改名 / 绑分组 / 绑代理 / 同步模型） -->
+    <account-edit-dialog
+      v-model:visible="editVisible"
+      :row="editRow"
+      :groups="groups"
+      :proxies="proxies"
+      @saved="loadAll"
+    />
+
+    <!-- 在线测试（组件：直调插件 Chat，绕路由与密钥） -->
+    <account-test-drawer v-model:visible="testVisible" :row="testRow" />
+
     <!-- 添加账号：向导（选择客户端 → 授权 → 配置） -->
     <t-dialog v-model:visible="addVisible" :header="$t('accounts.add')" :footer="false" width="680px" :close-on-overlay-click="false">
 
@@ -272,51 +284,7 @@
       </t-space>
     </t-dialog>
 
-    <!-- 编辑账号：改名 / 绑分组 / 绑代理 / 同步模型 -->
-    <t-dialog v-model:visible="editVisible" :header="$t('accounts.editTitle')" :confirm-btn="{ loading: editSaving }" width="640px" @confirm="submitEdit">
-      <t-form v-if="editRow" label-width="90px">
-        <t-form-item :label="$t('accounts.name')">
-          <t-input v-model="editName" :placeholder="$t('accounts.namePh')" clearable />
-        </t-form-item>
-        <t-form-item :label="$t('accounts.groupsTitle')">
-          <bind-select v-model="editGroups" :options="editGroupOptions" :placeholder="$t('accounts.groupsPh')" />
-        </t-form-item>
-        <t-form-item :label="$t('accounts.proxyTitle')">
-          <bind-select v-model="editProxies" :options="proxyOptions" :placeholder="$t('accounts.proxyPh')" />
-        </t-form-item>
-        <t-form-item :label="$t('accounts.modelsTitle')">
-          <div style="width: 100%">
-            <t-link theme="primary" @click="editSyncModels">{{ editSyncing ? $t('accounts.syncing') : $t('accounts.sync') }}</t-link>
-            <div v-if="editModels.length" class="model-list" style="margin-top: 8px">
-              <t-tag v-for="m in editModels" :key="m.id" closable variant="light-outline" style="margin: 0 6px 6px 0" @close="editModels = editModels.filter((x) => x.id !== m.id)">{{ m.id }}</t-tag>
-            </div>
-            <span v-else class="hint">{{ $t('accounts.noModels') }}</span>
-          </div>
-        </t-form-item>
-      </t-form>
-    </t-dialog>
 
-    <!-- 在线测试：选端点/模型/问题 → 响应日志 -->
-    <t-drawer v-model:visible="testVisible" :header="$t('accounts.testTitle')" size="560px" :footer="false">
-      <t-space v-if="testRow" direction="vertical" style="width: 100%" size="large">
-        <t-form label-width="80px">
-          <t-form-item :label="$t('accounts.testEndpoint')">
-            <bind-select v-model="testEndpoint" :multiple="false" :options="endpointOptions" />
-          </t-form-item>
-          <t-form-item :label="$t('accounts.testModel')">
-            <bind-select v-model="testModel" :multiple="false" :options="testModelOptions" :placeholder="$t('accounts.testModelPh')" />
-          </t-form-item>
-          <t-form-item :label="$t('accounts.testQuestion')">
-            <t-input v-model="testQuestion" :placeholder="$t('accounts.testQuestionPh')" />
-          </t-form-item>
-        </t-form>
-        <t-button theme="primary" block :loading="testing" :disabled="!testModel" @click="runTest">{{ $t('accounts.testRun') }}</t-button>
-        <div v-if="testText" class="test-answer">{{ testText }}</div>
-        <div v-if="testLogs.length" class="test-logs">
-          <div v-for="(l, i) in testLogs" :key="i" class="test-log-line">{{ l }}</div>
-        </div>
-      </t-space>
-    </t-drawer>
   </div>
 </template>
 
@@ -328,6 +296,8 @@ import { RefreshIcon } from 'tdesign-icons-vue-next'
 import { CheckIcon } from 'tdesign-icons-vue-next'
 import { api } from '../api/client'
 import AccountDetailDrawer from '../components/AccountDetailDrawer.vue'
+import AccountEditDialog from '../components/AccountEditDialog.vue'
+import AccountTestDrawer from '../components/AccountTestDrawer.vue'
 import { fmtNum } from '../utils/format'
 import DataTable from '../components/DataTable.vue'
 import BindSelect from '../components/BindSelect.vue'
@@ -346,22 +316,10 @@ const refreshingAll = ref(false)
 // 编辑弹窗
 const editVisible = ref(false)
 const editRow = ref<Account | null>(null)
-const editName = ref('')
-const editGroups = ref<number[]>([])
-const editProxies = ref<number[]>([])
-const editModels = ref<{ id: string }[]>([])
-const editSaving = ref(false)
-const editSyncing = ref(false)
 
 // 在线测试抽屉
 const testVisible = ref(false)
 const testRow = ref<Account | null>(null)
-const testEndpoint = ref('chat_completions')
-const testModel = ref('')
-const testQuestion = ref('')
-const testText = ref('')
-const testLogs = ref<string[]>([])
-const testing = ref(false)
 
 const addVisible = ref(false)
 const wizardStep = ref<'select' | 'auth' | 'done'>('select')
@@ -513,6 +471,17 @@ const autoPolling = computed(() => {
   }
 })
 
+// 打开编辑弹窗 / 在线测试抽屉：父级只记「对哪个账号」，其余状态在子组件里
+function openEdit(row: Account) {
+  editRow.value = row
+  editVisible.value = true
+}
+
+function openTest(row: Account) {
+  testRow.value = row
+  testVisible.value = true
+}
+
 async function loadAll() {
   loading.value = true
   try {
@@ -537,98 +506,11 @@ const proxyOptions = computed(() =>
 const wizardGroupOptions = computed(() =>
   pluginGroups.value.map((g) => ({ value: g.id, label: `${g.name} (${g.plugin_label || g.plugin})` })),
 )
-const editGroupOptions = computed(() => {
-  const pid = editRow.value?.plugin_id
-  return groups.value.filter((g) => g.plugin_id === pid).map((g) => ({ value: g.id, label: `${g.name} (${g.plugin_label || g.plugin})` }))
-})
-const endpointOptions = [
-  { value: 'chat_completions', label: 'chat/completions' },
-  { value: 'messages', label: 'messages' },
-  { value: 'responses', label: 'responses' },
-]
-const testModelOptions = computed(() => editModels.value.map((m) => ({ value: m.id, label: m.id })))
 
-// openEdit 打开编辑弹窗，回填名称/分组/代理/模型
-async function openEdit(row: Account) {
-  editRow.value = row
-  editName.value = row.display_name
-  editGroups.value = [...(row.group_ids ?? [])]
-  editModels.value = []
-  editProxies.value = []
-  editVisible.value = true
-  const [px, detail] = await Promise.all([
-    api.get<{ proxy_ids: number[] }>(`/admin/accounts/${row.id}/proxies`).catch(() => ({ proxy_ids: [] })),
-    api.get<AccountDetail>(`/admin/accounts/${row.id}/detail`).catch(() => null),
-  ])
-  editProxies.value = px.proxy_ids ?? []
-  editModels.value = (detail?.models ?? []).map((m) => ({ id: m.id }))
-}
 
-// editSyncModels 拉上游模型目录（?refresh=1 落库）
-async function editSyncModels() {
-  if (!editRow.value || editSyncing.value) return
-  editSyncing.value = true
-  try {
-    const resp = await api.get<{ models: ModelInfo[] | null }>(`/admin/accounts/${editRow.value.id}/models?refresh=1`)
-    editModels.value = (resp.models ?? []).map((m) => ({ id: m.id }))
-  } catch (e: any) {
-    MessagePlugin.warning(t('accounts.syncFailed', { msg: e.message }))
-  } finally {
-    editSyncing.value = false
-  }
-}
 
-// submitEdit 保存名称/分组/代理/模型（模型以用户勾选为准）
-async function submitEdit() {
-  if (!editRow.value) return
-  editSaving.value = true
-  try {
-    const id = editRow.value.id
-    await api.put(`/admin/accounts/${id}`, { display_name: editName.value, group_ids: editGroups.value })
-    await api.put(`/admin/accounts/${id}/proxies`, { proxy_ids: editProxies.value })
-    await api.put(`/admin/accounts/${id}/models`, { models: editModels.value })
-    MessagePlugin.success(t('common.saved'))
-    editVisible.value = false
-    await loadAll()
-  } catch (e: any) {
-    MessagePlugin.error(e.message)
-  } finally {
-    editSaving.value = false
-  }
-}
 
-// openTest 打开在线测试抽屉，模型候选取账号已存模型
-async function openTest(row: Account) {
-  testRow.value = row
-  testEndpoint.value = 'chat_completions'
-  testQuestion.value = ''
-  testText.value = ''
-  testLogs.value = []
-  testModel.value = ''
-  testVisible.value = true
-  const detail = await api.get<AccountDetail>(`/admin/accounts/${row.id}/detail`).catch(() => null)
-  editModels.value = (detail?.models ?? []).map((m) => ({ id: m.id }))
-  if (editModels.value.length) testModel.value = editModels.value[0].id
-}
 
-// runTest 直调插件 Chat（绕路由/key），输出响应与日志
-async function runTest() {
-  if (!testRow.value || !testModel.value) return
-  testing.value = true
-  testText.value = ''
-  testLogs.value = []
-  try {
-    const resp = await api.post<{ text: string; logs: string[] }>(`/admin/accounts/${testRow.value.id}/test`, {
-      endpoint: testEndpoint.value, model: testModel.value, question: testQuestion.value,
-    })
-    testText.value = resp.text ?? ''
-    testLogs.value = resp.logs ?? []
-  } catch (e: any) {
-    testLogs.value = ['✗ ' + (e.message || 'error')]
-  } finally {
-    testing.value = false
-  }
-}
 
 function openAdd() {
   addVisible.value = true
