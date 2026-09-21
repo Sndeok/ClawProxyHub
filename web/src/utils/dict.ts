@@ -26,6 +26,7 @@ export const strategyDict: Record<string, Bi> = {
   random: { zh: '随机', en: 'Random' },
   least_used: { zh: '最少使用', en: 'Least Used' },
   sticky: { zh: '会话粘性', en: 'Sticky Session' },
+  expiring: { zh: '过期优先', en: 'Expiring First' },
 }
 
 export const accountStatusDict: Record<string, Bi> = {

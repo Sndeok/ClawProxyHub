@@ -66,6 +66,22 @@
           {{ dict(accountStatusDict, row.status) }}
         </t-tag>
       </template>
+      <template #expiry="{ row }">
+        <t-tooltip v-if="row.credits?.next_expiry" placement="top-left">
+          <span class="expiry" :class="{ soon: expiringSoon(row.credits) }">
+            {{ expiryLabel(row.credits) }}
+          </span>
+          <template #content>
+            <div class="tok-detail">
+              <div class="tok-detail-title">{{ $t('accounts.expiry') }}</div>
+              <div class="tok-detail-row"><span>{{ $t('accounts.nextExpiry') }}</span><b>{{ row.credits?.next_expiry }}</b></div>
+              <div class="tok-detail-row"><span>{{ $t('accounts.nextLeft') }}</span><b>{{ row.credits?.next_left ?? 0 }}</b></div>
+              <div class="tok-detail-row"><span>{{ $t('accounts.expiring7') }}</span><b>{{ row.credits?.expiring ?? 0 }}</b></div>
+            </div>
+          </template>
+        </t-tooltip>
+        <span v-else class="dim">-</span>
+      </template>
       <template #today_tokens="{ row }">
         <t-tooltip v-if="row.today_tokens || row.today_cached" placement="top-left">
           <span class="today num">{{ fmtCompact(row.today_tokens) }}</span>
@@ -448,6 +464,7 @@ const columns = computed(() => [
   { colKey: 'credits', title: t('accounts.credits'), width: 108, align: 'center' },
   { colKey: 'today_tokens', title: t('accounts.todayTokens'), width: 108, align: 'center' },
   { colKey: 'today_credits', title: t('accounts.todayCredits'), width: 102, align: 'center' },
+  { colKey: 'expiry', title: t('accounts.expiry'), width: 132, align: 'center' },
   { colKey: 'status', title: t('accounts.status'), width: 84, align: 'center' },
   { colKey: 'schedule', title: t('accounts.schedule'), width: 86, align: 'center' },
   { colKey: 'last_refresh_at', title: t('accounts.lastRefresh'), width: 106, cell: (_h: any, { row }: any) => row.last_refresh_at ? timeAgo(row.last_refresh_at) : '-', align: 'center' },
@@ -963,6 +980,20 @@ async function refreshAll() {
   }
 }
 
+// 快过期积分：7 天内有到期额度时高亮，避免白白作废
+function expiringSoon(c?: { expiring?: number }): boolean {
+  return !!c?.expiring && c.expiring > 0
+}
+
+function expiryLabel(c?: { next_expiry?: string; next_left?: number }): string {
+  if (!c?.next_expiry) return '-'
+  const at = new Date(c.next_expiry.replace(' ', 'T'))
+  const days = Math.ceil((at.getTime() - Date.now()) / 86400000)
+  const left = c.next_left ? ` · ${Math.round(c.next_left)}` : ''
+  if (days <= 0) return `已到期${left}`
+  return `${days} 天后${left}`
+}
+
 // 今日用量列：大数压缩展示（12.3K / 1.2M）
 function fmtCompact(n?: number): string {
   const v = n || 0
@@ -992,6 +1023,8 @@ onMounted(loadAll)
   align-items: center;
   gap: 10px;
 }
+.expiry { font-variant-numeric: tabular-nums; color: var(--cph-text-2); }
+.expiry.soon { color: var(--cph-warning); font-weight: 600; }
 .today {
   color: var(--cph-text-1);
   font-weight: 600;

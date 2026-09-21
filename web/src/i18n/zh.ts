@@ -256,7 +256,7 @@ export default {
     accountCol: '账号',
     credits: '积分',
     creditUsed: '积分消耗',
-    creditUnknown: '该请求未上报积分',
+    creditUnknown: '上游未返回单次积分（账号积分见「账号」页）',
     hitRate: '缓存命中率',
   },
   dashboard: {
@@ -423,6 +423,10 @@ export default {
     queued: '已加入执行队列',
   },
   accounts: {
+    expiry: '积分到期',
+    nextExpiry: '最近到期',
+    nextLeft: '该包剩余',
+    expiring7: '7 天内到期',
     refreshAll: '一键刷新',
     refreshAllDone: '已刷新 {ok}/{total} 个账号',
     todayTokens: '今日 Token',

@@ -242,6 +242,11 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 		Credits     *struct {
 			Remaining string `json:"remaining,omitempty"`
 			Total     string `json:"total,omitempty"`
+			// 积分包到期概览：快过期（7 天内）的剩余合计 + 最近一个到期时间
+			Expiring   float64 `json:"expiring,omitempty"`
+			NextExpiry string  `json:"next_expiry,omitempty"`
+			NextLeft   float64 `json:"next_left,omitempty"`
+			Packages   int     `json:"packages,omitempty"`
 		} `json:"credits,omitempty"`
 		// 今日用量：token / 缓存 / 积分（积分优先取插件上报的逐次累加，缺失时用积分快照差值估算）
 		TodayTokens   int64   `json:"today_tokens"`
@@ -278,10 +283,22 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 				Remaining string `json:"remaining"`
 			}
 			if json.Unmarshal([]byte(a.CreditsJSON), &c) == nil && (c.Total != "" || c.Remaining != "") {
+				exp := accountpkg.CreditExpiryOf(a.CreditsJSON)
+				next := ""
+				if !exp.NextAt.IsZero() {
+					next = exp.NextAt.Format("2006-01-02 15:04:05")
+				}
 				v.Credits = &struct {
-					Remaining string `json:"remaining,omitempty"`
-					Total     string `json:"total,omitempty"`
-				}{Remaining: c.Remaining, Total: c.Total}
+					Remaining  string  `json:"remaining,omitempty"`
+					Total      string  `json:"total,omitempty"`
+					Expiring   float64 `json:"expiring,omitempty"`
+					NextExpiry string  `json:"next_expiry,omitempty"`
+					NextLeft   float64 `json:"next_left,omitempty"`
+					Packages   int     `json:"packages,omitempty"`
+				}{
+					Remaining: c.Remaining, Total: c.Total,
+					Expiring: exp.Expiring, NextExpiry: next, NextLeft: exp.NextLeft, Packages: exp.Packages,
+				}
 			}
 		}
 		out = append(out, v)

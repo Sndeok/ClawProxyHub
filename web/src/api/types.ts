@@ -51,7 +51,17 @@ export interface Account {
   pause_reason: string
   paused_until: string | null
   last_refresh_at: string | null
-  credits?: { remaining?: string; total?: string; free_limit?: string; free_used?: string } | null
+  credits?: {
+    remaining?: string
+    total?: string
+    free_limit?: string
+    free_used?: string
+    // 积分包到期：快过期（7 天内）剩余合计 + 最近到期时间（空 = 无到期信息）
+    expiring?: number
+    next_expiry?: string
+    next_left?: number
+    packages?: number
+  } | null
   // 今日用量（服务端按 request_logs 聚合；积分缺失插件上报时回落到积分快照差值并置 estimated）
   today_tokens?: number
   today_cached?: number

@@ -71,3 +71,92 @@ func RecordCreditSnapshot(db *gorm.DB, accountID int64, creditsJSON string) {
 			"samples": cur.Samples + 1, "updated_at": now,
 		})
 }
+
+// CreditExpiry 积分包的到期概览。
+type CreditExpiry struct {
+	Packages int       // 带到期时间的积分包数量
+	Expiring float64   // expiringWindow 内到期的剩余积分合计
+	NextAt   time.Time // 最近一个到期时间（零值 = 无）
+	NextLeft float64   // 最近那个包剩余多少
+}
+
+// expiringWindow 快到期的判定窗口：7 天内到期视为「快过期」。
+const expiringWindow = 7 * 24 * time.Hour
+
+// CreditExpiry 从 credits_json 的 packages 里读出到期信息。
+// 不同插件字段名略有差异（expiresAt / expireTime / expiry），时间格式也宽容解析。
+func CreditExpiryOf(creditsJSON string) CreditExpiry {
+	var raw struct {
+		Packages []struct {
+			// 插件用 trimFloat 输出：可能是字符串也可能是数字，统一用 RawMessage 宽容解析
+			Remaining json.RawMessage `json:"remaining"`
+			Left      json.RawMessage `json:"left"`
+			ExpiresAt string          `json:"expiresAt"`
+			ExpireAt2 string          `json:"expireTime"`
+			Expiry    string          `json:"expiry"`
+		} `json:"packages"`
+	}
+	if strings.TrimSpace(creditsJSON) == "" || json.Unmarshal([]byte(creditsJSON), &raw) != nil {
+		return CreditExpiry{}
+	}
+	out := CreditExpiry{}
+	now := time.Now()
+	for _, p := range raw.Packages {
+		rawExp := p.ExpiresAt
+		if rawExp == "" {
+			rawExp = p.ExpireAt2
+		}
+		if rawExp == "" {
+			rawExp = p.Expiry
+		}
+		if rawExp == "" {
+			continue
+		}
+		at, ok := parseLooseTime(rawExp)
+		if !ok {
+			continue
+		}
+		left := rawNumber(p.Remaining)
+		if left == 0 {
+			left = rawNumber(p.Left)
+		}
+		out.Packages++
+		if out.NextAt.IsZero() || at.Before(out.NextAt) {
+			out.NextAt, out.NextLeft = at, left
+		}
+		if at.After(now) && at.Sub(now) <= expiringWindow {
+			out.Expiring += left
+		}
+	}
+	return out
+}
+
+// parseLooseTime 宽容解析上游到期时间：RFC3339 / 常见日期时间 / 纯日期。
+func parseLooseTime(raw string) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	for _, layout := range []string{
+		time.RFC3339, "2006-01-02T15:04:05", "2006-01-02 15:04:05",
+		"2006/01/02 15:04:05", "2006-01-02",
+	} {
+		if t, err := time.ParseInLocation(layout, raw, time.Local); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// rawNumber 宽容解析 JSON 数字或数字字符串（"120.5" 与 120.5 都能出值）。
+func rawNumber(raw json.RawMessage) float64 {
+	if len(raw) == 0 {
+		return 0
+	}
+	s := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	if s == "" || s == "null" {
+		return 0
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	return v
+}

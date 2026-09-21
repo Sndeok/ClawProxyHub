@@ -256,7 +256,7 @@ export default {
     accountCol: 'Account',
     credits: 'Credits',
     creditUsed: 'Credits Used',
-    creditUnknown: 'No credit usage reported for this request',
+    creditUnknown: 'Upstream reports no per-request credits (see Accounts)',
     hitRate: 'Cache Hit Rate',
   },
   dashboard: {
@@ -423,6 +423,10 @@ export default {
     queued: 'Queued for execution',
   },
   accounts: {
+    expiry: 'Credit Expiry',
+    nextExpiry: 'Expires At',
+    nextLeft: 'Package Left',
+    expiring7: 'Expiring <= 7d',
     refreshAll: 'Refresh All',
     refreshAllDone: 'Refreshed {ok}/{total} accounts',
     todayTokens: 'Today Tokens',

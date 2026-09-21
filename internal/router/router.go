@@ -9,11 +9,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"sort"
 	"sync"
 	"time"
 
 	"gorm.io/gorm"
 
+	"github.com/ShadowSmallBaby/ClawProxyHub/internal/account"
 	"github.com/ShadowSmallBaby/ClawProxyHub/internal/model"
 	pb "github.com/ShadowSmallBaby/ClawProxyHub/sdk/proto/cphv1"
 )
@@ -147,6 +149,8 @@ func (r *Router) Resolve(key *model.Key, req *pb.ChatRequest) (*Resolved, error)
 		acct = r.byRandom(entry.GroupID)
 	case "least_used":
 		acct = r.byLeastUsed(entry.GroupID)
+	case "expiring":
+		acct = r.byExpiringFirst(entry.GroupID)
 	default: // round_robin / sticky（未命中退化为轮询）
 		acct = r.byRoundRobin(route.ID, entry.GroupID)
 	}
@@ -173,6 +177,8 @@ func (r *Router) PickFailover(route *model.Route) *Resolved {
 		acct = r.byRandom(gid)
 	case "least_used":
 		acct = r.byLeastUsed(gid)
+	case "expiring":
+		acct = r.byExpiringFirst(gid)
 	default:
 		acct = r.byRoundRobin(route.ID, gid)
 	}
@@ -271,6 +277,50 @@ func (r *Router) byRandom(groupID int64) *model.Account {
 		return nil
 	}
 	return &accts[rand.Intn(len(accts))]
+}
+
+// byExpiringFirst 快过期积分优先：挑「7 天内到期积分」最多的账号，
+// 把请求尽量打在即将作废的额度上（同额度下再按最久未用）。
+// 没有任何到期信息时退化为最少使用。参考 workbuddy2api 的 expiring 权重思路。
+func (r *Router) byExpiringFirst(groupID int64) *model.Account {
+	accts := r.accountsInGroup(groupID)
+	if len(accts) == 0 {
+		return nil
+	}
+	type cand struct {
+		acct     model.Account
+		expiring float64
+	}
+	cands := make([]cand, 0, len(accts))
+	anyExpiring := false
+	for _, a := range accts {
+		e := account.CreditExpiryOf(a.CreditsJSON)
+		if e.Expiring > 0 {
+			anyExpiring = true
+		}
+		cands = append(cands, cand{acct: a, expiring: e.Expiring})
+	}
+	if !anyExpiring {
+		return r.byLeastUsed(groupID)
+	}
+	sort.SliceStable(cands, func(i, j int) bool {
+		if cands[i].expiring != cands[j].expiring {
+			return cands[i].expiring > cands[j].expiring
+		}
+		return lastUsedAsc(cands[i].acct, cands[j].acct)
+	})
+	return &cands[0].acct
+}
+
+// lastUsedAsc 未使用过的排前面。
+func lastUsedAsc(a, b model.Account) bool {
+	if a.LastUsedAt == nil {
+		return b.LastUsedAt != nil
+	}
+	if b.LastUsedAt == nil {
+		return false
+	}
+	return a.LastUsedAt.Before(*b.LastUsedAt)
 }
 
 // byLeastUsed 分组内最少使用优先（空闲账号优先吃新会话）。

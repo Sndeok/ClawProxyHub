@@ -67,6 +67,7 @@
             <t-radio-button value="round_robin">{{ dict(strategyDict, 'round_robin') }}</t-radio-button>
             <t-radio-button value="random">{{ dict(strategyDict, 'random') }}</t-radio-button>
             <t-radio-button value="least_used">{{ dict(strategyDict, 'least_used') }}</t-radio-button>
+            <t-radio-button value="expiring">{{ dict(strategyDict, 'expiring') }}</t-radio-button>
             <t-radio-button value="sticky">{{ dict(strategyDict, 'sticky') }}</t-radio-button>
           </t-radio-group>
         </t-form-item>
