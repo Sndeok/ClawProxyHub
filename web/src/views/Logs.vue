@@ -37,10 +37,7 @@
           <span class="num">Σ {{ fmt(pageSummary.tokens) }}</span>
           <span class="sep">·</span>
           <span>{{ $t('logs.hitRate') }} <b class="num">{{ pageSummary.hitRate }}</b></span>
-          <template v-if="pageSummary.credits > 0">
-            <span class="sep">·</span>
-            <span>{{ $t('logs.credits') }} <b class="num">{{ fmtCredit(pageSummary.credits) }}</b></span>
-          </template>
+
         </span>
         <label class="auto-refresh">
           <t-switch v-model="autoRefresh" size="small" />
@@ -108,20 +105,7 @@
             <span v-else-if="row.AccountID" class="dim">#{{ row.AccountID }}</span>
             <span v-else class="dim">-</span>
           </template>
-          <template #credits="{ row }">
-            <t-tooltip v-if="row.CreditUsed" placement="top-left">
-              <span class="credit num">{{ fmtCredit(row.CreditUsed) }}</span>
-              <template #content>
-                <div class="tok-detail">
-                  <div class="tok-detail-title">{{ $t('logs.creditUsed') }}</div>
-                  <div class="tok-detail-row"><span>{{ $t('logs.credits') }}</span><b>{{ row.CreditUsed }}</b></div>
-                </div>
-              </template>
-            </t-tooltip>
-            <t-tooltip v-else :content="$t('logs.creditUnknown')" placement="top">
-              <span class="dim">-</span>
-            </t-tooltip>
-          </template>
+
           <template #tokens="{ row }">
           <!-- Token 明细合并：输入/输出/缓存 tooltip + 总数 -->
           <t-tooltip placement="top-left" :overlay-style="{ minWidth: '220px' }">
@@ -329,7 +313,6 @@ const columns = computed(() => [
   // 协议 + 流式合并，省一列宽度；流式用浅色标签区分
   { colKey: 'protocol', title: t('logs.protocol'), width: 118, align: 'center' },
   { colKey: 'tokens', title: 'Token', width: 148, align: 'center' },
-  { colKey: 'credits', title: t('logs.credits'), width: 86, align: 'center' },
   { colKey: 'latency', title: t('logs.latency'), width: 112, align: 'center' },
   { colKey: 'attempts', title: t('logs.attempts'), width: 72, align: 'center' },
   { colKey: 'ClientIP', title: 'IP', width: 104, align: 'center' },
@@ -357,7 +340,6 @@ const detailRows = computed<DetailRow[]>(() => {
     { label: t('logs.outputTokens'), value: String(d.OutputTokens || 0) },
     { label: t('logs.cached'), value: `${d.CachedTokens || 0}（${hitRate(d)}）` },
     { label: t('logs.totalTokens'), value: String(totalTokens(d)) },
-    { label: t('logs.creditUsed'), value: d.CreditUsed ? String(d.CreditUsed) : t('logs.creditUnknown') },
     { label: t('logs.firstToken'), value: fmtMs(d.FirstTokenMs) },
     { label: t('logs.totalTime'), value: fmtMs(d.LatencyMs) },
     { label: t('logs.attempts'), value: String(d.Attempts || 1), danger: (d.Attempts || 1) > 1 },
@@ -420,11 +402,6 @@ function totalTokens(row: RequestLog): number {
   return (row.InputTokens || 0) + (row.OutputTokens || 0)
 }
 
-function fmtCredit(n: number): string {
-  if (!n) return '0'
-  if (Number.isInteger(n)) return String(n)
-  return n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
-}
 
 // 命中率 = 命中 / 输入总量（cached 已包含在 input 里，分母不能再加它）
 function hitRate(row: RequestLog): string {
@@ -440,14 +417,13 @@ function rate(part: number, whole: number): string {
 
 // 本页汇总：让「这一屏大概花了多少」一眼可见，不用心算
 const pageSummary = computed(() => {
-  let tokens = 0, cached = 0, input = 0, credits = 0
+  let tokens = 0, cached = 0, input = 0
   for (const row of logs.value) {
     tokens += (row.InputTokens || 0) + (row.OutputTokens || 0)
     cached += row.CachedTokens || 0
     input += row.InputTokens || 0
-    credits += row.CreditUsed || 0
   }
-  return { tokens, credits, hitRate: rate(cached, input) }
+  return { tokens, hitRate: rate(cached, input) }
 })
 
 // ---------- 查询 ----------
@@ -670,10 +646,6 @@ onBeforeUnmount(() => {
 }
 .acct {
   color: var(--cph-text-2);
-}
-.credit {
-  color: var(--cph-warning);
-  font-weight: 600;
 }
 .table-wrap {
   background: var(--cph-surface);
