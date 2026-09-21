@@ -160,11 +160,12 @@ func TestSyncRoutesCreatesMissingOnly(t *testing.T) {
 func TestTodayStatsByAccount(t *testing.T) {
 	db := opsTestDB(t)
 	a1, a2 := int64(1), int64(2)
-	now := time.Now()
+	// 以「今天 00:00」为基准构造样本，避免在凌晨运行时 now-2h 落到昨天（曾因此偶发失败）
+	dayStart := todayStart()
 	rows := []model.RequestLog{
-		{AccountID: &a1, InputTokens: 100, OutputTokens: 10, CachedTokens: 40, CreditUsed: 1.5, CreatedAt: now},
-		{AccountID: &a1, InputTokens: 200, OutputTokens: 20, CachedTokens: 0, Status: 502, CreatedAt: now.Add(-2 * time.Hour)},
-		{AccountID: &a2, InputTokens: 999, OutputTokens: 1, CreatedAt: now.AddDate(0, 0, -1)},
+		{AccountID: &a1, InputTokens: 100, OutputTokens: 10, CachedTokens: 40, CreditUsed: 1.5, CreatedAt: dayStart.Add(2 * time.Hour)},
+		{AccountID: &a1, InputTokens: 200, OutputTokens: 20, CachedTokens: 0, Status: 502, CreatedAt: dayStart.Add(time.Hour)},
+		{AccountID: &a2, InputTokens: 999, OutputTokens: 1, CreatedAt: dayStart.Add(-time.Hour)},
 	}
 	for i := range rows {
 		db.Create(&rows[i])
