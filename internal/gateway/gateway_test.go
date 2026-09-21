@@ -207,6 +207,10 @@ func TestAnthropicSSECacheTokens(t *testing.T) {
 	if !strings.Contains(out, `"cache_read_input_tokens":80`) {
 		t.Errorf("命中缓存时缺少 cache_read_input_tokens:\n%s", out)
 	}
+	// 信封的 input 含缓存命中，Anthropic 客户端要的是不含的那部分：100-80=20
+	if !strings.Contains(out, `"input_tokens":20`) {
+		t.Errorf("input_tokens 未按 Anthropic 语义减去缓存命中:\n%s", out)
+	}
 
 	// 无命中：不输出该字段（0 值对 Anthropic 客户端无意义）
 	st2 := newAnthSSEState("glm-5.3")
@@ -222,5 +226,35 @@ func TestAnthropicSSECacheTokens(t *testing.T) {
 	}}))
 	if strings.Contains(sb2.String(), "cache_read_input_tokens") {
 		t.Errorf("未命中缓存时不应输出 cache_read_input_tokens:\n%s", sb2.String())
+	}
+}
+
+// TestOpenAIAndResponsesUsagePayload 回归：缓存命中以明细字段透出，
+// prompt_tokens / input_tokens 保持「含缓存」的总量，不再把命中算两遍。
+func TestOpenAIAndResponsesUsagePayload(t *testing.T) {
+	u := &pb.Usage{InputTokens: 100, OutputTokens: 5, CachedTokens: 80}
+
+	oa := openAIUsagePayload(u)
+	if oa["prompt_tokens"] != int64(100) || oa["total_tokens"] != int64(105) {
+		t.Errorf("OpenAI usage 口径错误：%+v", oa)
+	}
+	details, ok := oa["prompt_tokens_details"].(map[string]interface{})
+	if !ok || details["cached_tokens"] != int64(80) {
+		t.Errorf("OpenAI usage 缺少 prompt_tokens_details.cached_tokens：%+v", oa)
+	}
+
+	rp := responsesUsagePayload(100, 5, 80)
+	if rp["input_tokens"] != int64(100) || rp["total_tokens"] != int64(105) {
+		t.Errorf("Responses usage 口径错误：%+v", rp)
+	}
+	rd, ok := rp["input_tokens_details"].(map[string]interface{})
+	if !ok || rd["cached_tokens"] != int64(80) {
+		t.Errorf("Responses usage 缺少 input_tokens_details.cached_tokens：%+v", rp)
+	}
+
+	// 无命中时不输出明细字段（避免客户端显示 0 命中）
+	noCache := openAIUsagePayload(&pb.Usage{InputTokens: 10, OutputTokens: 1})
+	if _, ok := noCache["prompt_tokens_details"]; ok {
+		t.Errorf("无命中时不应输出 prompt_tokens_details：%+v", noCache)
 	}
 }

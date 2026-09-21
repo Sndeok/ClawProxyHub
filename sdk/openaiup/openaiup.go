@@ -214,12 +214,17 @@ func (p *Parser) finish(u *openAIUsage) {
 		return
 	}
 	p.sentFinish = true
+	// 各家中转对「缓存命中」的字段命名不同，是同一数字的别名而不是可累加的分项，
+	// 因此取最大值（相加会把同一份命中算成两倍）。
 	cached := u.CachedTokens
 	if u.PromptDetails != nil {
-		cached += u.PromptDetails.CachedTokens + u.PromptDetails.CacheRead
+		cached = maxInt64(cached, u.PromptDetails.CachedTokens, u.PromptDetails.CacheRead)
 	}
 	if u.InputDetails != nil {
-		cached += u.InputDetails.CachedTokens + u.InputDetails.CacheRead
+		cached = maxInt64(cached, u.InputDetails.CachedTokens, u.InputDetails.CacheRead)
+	}
+	if cached > u.PromptTokens {
+		cached = u.PromptTokens // 命中是输入的子集，上游给歪了也不能超过输入
 	}
 	p.emit(&pb.StreamEvent{Event: &pb.StreamEvent_MessageFinish{
 		MessageFinish: &pb.MessageFinish{
@@ -230,6 +235,17 @@ func (p *Parser) finish(u *openAIUsage) {
 			},
 		},
 	}})
+}
+
+// maxInt64 取多个 int64 的最大值。
+func maxInt64(vals ...int64) int64 {
+	var out int64
+	for _, v := range vals {
+		if v > out {
+			out = v
+		}
+	}
+	return out
 }
 
 // creditOf 取上游 usage 里的积分消耗（各家中转命名不一，取第一个非零）。

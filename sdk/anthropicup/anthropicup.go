@@ -182,8 +182,19 @@ type Parser struct {
 	emit       func(*pb.StreamEvent)
 	blocks     map[int]blockInfo // content block index → 身份
 	nextToolID int
-	pendingUse *pb.Usage
+	pending    anthropicUsage
 	sentFinish bool
+}
+
+// anthropicUsage 上游用量原始字段。
+// 注意 Anthropic 语义：input_tokens **不含**缓存命中/写入部分，
+// 完整输入 = input_tokens + cache_read_input_tokens + cache_creation_input_tokens。
+// 信封（pb.Usage）统一用「含缓存的完整输入」，换算在 finish() 里做一次。
+type anthropicUsage struct {
+	input       int64
+	cacheRead   int64
+	cacheCreate int64
+	output      int64
 }
 
 type blockInfo struct {
@@ -242,11 +253,12 @@ func (p *Parser) Feed(line string) {
 	}
 	switch ev.Type {
 	case "message_start":
-		// message_start 携带输入侧用量（含 prompt 缓存命中/写入），先在本地挂起，
+		// message_start 携带输入侧用量（含缓存命中/写入），先挂起，
 		// 等 message_delta / message_stop 拿到 output_tokens 后一起上报。
-		p.pendingUse = mergeUsage(p.pendingUse, &pb.Usage{
-			InputTokens:  ev.Message.Usage.InputTokens,
-			CachedTokens: ev.Message.Usage.CacheReadInputTokens,
+		p.pending.merge(anthropicUsage{
+			input:       ev.Message.Usage.InputTokens,
+			cacheRead:   ev.Message.Usage.CacheReadInputTokens,
+			cacheCreate: ev.Message.Usage.CacheCreationInputTokens,
 		})
 		p.emit(&pb.StreamEvent{Event: &pb.StreamEvent_MessageStart{
 			MessageStart: &pb.MessageStart{Model: ev.Message.Model},
@@ -270,10 +282,11 @@ func (p *Parser) Feed(line string) {
 	case "message_delta":
 		// stop_reason + output_tokens 通常都在这里；部分上游会在 message_delta 里再带一次
 		// 输入侧用量（Anthropic 官方在新版本里会补 input_tokens / cache_read_input_tokens）。
-		p.pendingUse = mergeUsage(p.pendingUse, &pb.Usage{
-			InputTokens:  ev.Usage.InputTokens,
-			CachedTokens: ev.Usage.CacheReadInputTokens,
-			OutputTokens: ev.Usage.OutputTokens,
+		p.pending.merge(anthropicUsage{
+			input:       ev.Usage.InputTokens,
+			cacheRead:   ev.Usage.CacheReadInputTokens,
+			cacheCreate: ev.Usage.CacheCreationInputTokens,
+			output:      ev.Usage.OutputTokens,
 		})
 		if ev.Delta.StopReason != "" {
 			p.finish(mapStop(ev.Delta.StopReason))
@@ -311,29 +324,34 @@ func (p *Parser) finish(reason string) {
 	p.emit(&pb.StreamEvent{Event: &pb.StreamEvent_MessageFinish{
 		MessageFinish: &pb.MessageFinish{
 			FinishReason: reason,
-			Usage:        p.pendingUse,
+			Usage:        p.pending.envelope(),
 		},
 	}})
 }
 
-// mergeUsage 合并两次上游用量快照，取每个字段的较大值（上游分片上报，非累加语义）。
-func mergeUsage(dst, src *pb.Usage) *pb.Usage {
-	if dst == nil {
-		return src
+// merge 合并两次上游用量快照，取每个字段的较大值（上游分片上报，非累加语义）。
+func (u *anthropicUsage) merge(src anthropicUsage) {
+	if src.input > u.input {
+		u.input = src.input
 	}
-	if src == nil {
-		return dst
+	if src.cacheRead > u.cacheRead {
+		u.cacheRead = src.cacheRead
 	}
-	if src.InputTokens > dst.InputTokens {
-		dst.InputTokens = src.InputTokens
+	if src.cacheCreate > u.cacheCreate {
+		u.cacheCreate = src.cacheCreate
 	}
-	if src.OutputTokens > dst.OutputTokens {
-		dst.OutputTokens = src.OutputTokens
+	if src.output > u.output {
+		u.output = src.output
 	}
-	if src.CachedTokens > dst.CachedTokens {
-		dst.CachedTokens = src.CachedTokens
+}
+
+// envelope 换算成信封口径：input_tokens 含缓存部分，cached_tokens 是其中的命中子集。
+func (u anthropicUsage) envelope() *pb.Usage {
+	return &pb.Usage{
+		InputTokens:  u.input + u.cacheRead + u.cacheCreate,
+		OutputTokens: u.output,
+		CachedTokens: u.cacheRead,
 	}
-	return dst
 }
 
 // ---------- 工具 ----------

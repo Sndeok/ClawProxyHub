@@ -125,8 +125,9 @@ func TestParserCacheUsage(t *testing.T) {
 	if u == nil {
 		t.Fatal("usage 丢失")
 	}
-	if u.InputTokens != 1200 {
-		t.Errorf("input = %d, want 1200", u.InputTokens)
+	// Anthropic 语义：input_tokens(1200) 不含缓存，完整输入 = 1200 + 300 + 900
+	if u.InputTokens != 2400 {
+		t.Errorf("input = %d, want 2400（含缓存命中与写入）", u.InputTokens)
 	}
 	if u.OutputTokens != 42 {
 		t.Errorf("output = %d, want 42", u.OutputTokens)

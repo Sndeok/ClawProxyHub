@@ -353,9 +353,9 @@ const detailRows = computed<DetailRow[]>(() => {
     { label: t('logs.key'), value: d.key_name || '-' },
     { label: t('logs.plugin'), value: pluginLabel(d.PluginID) },
     { label: t('logs.account'), value: d.account_name || (d.AccountID ? `#${d.AccountID}` : '-') },
-    { label: t('logs.inputTokens'), value: String(d.InputTokens || 0) },
+    { label: t('logs.inputTokens'), value: `${d.InputTokens || 0}${d.CachedTokens ? '（含缓存命中）' : ''}` },
     { label: t('logs.outputTokens'), value: String(d.OutputTokens || 0) },
-    { label: t('logs.cached'), value: String(d.CachedTokens || 0) },
+    { label: t('logs.cached'), value: `${d.CachedTokens || 0}（${hitRate(d)}）` },
     { label: t('logs.totalTokens'), value: String(totalTokens(d)) },
     { label: t('logs.creditUsed'), value: d.CreditUsed ? String(d.CreditUsed) : t('logs.creditUnknown') },
     { label: t('logs.firstToken'), value: fmtMs(d.FirstTokenMs) },
@@ -414,8 +414,10 @@ function fmtTime(v: string): string {
   return v?.replace('T', ' ').slice(0, 19) ?? '-'
 }
 
+// 总 Token = 输入 + 输出。缓存命中是**输入的子集**（OpenAI / Anthropic 都是这个口径），
+// 早先这里又加了一次 cached，会把命中部分算两遍。
 function totalTokens(row: RequestLog): number {
-  return (row.InputTokens || 0) + (row.OutputTokens || 0) + (row.CachedTokens || 0)
+  return (row.InputTokens || 0) + (row.OutputTokens || 0)
 }
 
 function fmtCredit(n: number): string {
@@ -424,11 +426,16 @@ function fmtCredit(n: number): string {
   return n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
 }
 
-// 缓存命中率基数用「输入 token」：cached 是输入的一部分，不含输出
+// 命中率 = 命中 / 输入总量（cached 已包含在 input 里，分母不能再加它）
 function hitRate(row: RequestLog): string {
-  const base = (row.InputTokens || 0) + (row.CachedTokens || 0)
-  if (!row.CachedTokens || base <= 0) return '0%'
-  return `${((row.CachedTokens / base) * 100).toFixed(1)}%`
+  return rate(row.CachedTokens || 0, row.InputTokens || 0)
+}
+
+// rate 计算百分比并夹到 100%（上游偶尔给出比输入还大的命中值时也不显示 >100%）
+function rate(part: number, whole: number): string {
+  if (!part || whole <= 0) return '0%'
+  const pct = Math.min(100, (part / whole) * 100)
+  return `${pct.toFixed(1)}%`
 }
 
 // 本页汇总：让「这一屏大概花了多少」一眼可见，不用心算
@@ -437,13 +444,10 @@ const pageSummary = computed(() => {
   for (const row of logs.value) {
     tokens += (row.InputTokens || 0) + (row.OutputTokens || 0)
     cached += row.CachedTokens || 0
-    input += (row.InputTokens || 0) + (row.CachedTokens || 0)
+    input += row.InputTokens || 0
     credits += row.CreditUsed || 0
   }
-  return {
-    tokens, credits,
-    hitRate: input > 0 && cached > 0 ? `${((cached / input) * 100).toFixed(1)}%` : '0%',
-  }
+  return { tokens, credits, hitRate: rate(cached, input) }
 })
 
 // ---------- 查询 ----------

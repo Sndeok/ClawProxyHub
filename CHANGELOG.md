@@ -1,5 +1,28 @@
 # Changelog
 
+## 用量口径统一：缓存命中不再算两遍（2026-09-21）
+
+背景：日志详情里出现过「输入 70638 / 输出 1948 / 缓存命中 64320 / 总 Token 136906」，
+总 Token 把命中部分算了两遍，命中率分母也偏大。根因是各上游对 input_tokens 的语义不一致：
+OpenAI 的 prompt_tokens **含**缓存命中（命中是其子集），Anthropic 的 input_tokens **不含**
+（完整输入 = input_tokens + cache_read + cache_creation）。两种口径混在一起，加总就错。
+
+- Changed 统一信封口径：`Usage.input_tokens` = 完整输入（含缓存命中），
+  `Usage.cached_tokens` = 其中的命中子集，`Usage.output_tokens` = 输出；总 Token = 输入 + 输出。
+- Fixed `sdk/anthropicup`：把 `input_tokens + cache_read + cache_creation` 换算成完整输入再上报
+  （此前只报 input_tokens，导致 Anthropic 通道的输入偏小）。
+- Fixed `sdk/openaiup`：缓存候选字段（顶层 cached_tokens / prompt_tokens_details /
+  input_tokens_details 各家叫法）改为**取最大值**而不是相加 —— 它们是同一份命中的别名，
+  相加会把命中量算成两倍；并夹到不超过输入总量。
+- Fixed 网关 Anthropic 出口：回给 Claude 客户端时 `input_tokens` 扣掉命中部分
+  （Anthropic 语义），`cache_read_input_tokens` 单独给，客户端展示的节省才对得上。
+- Added 网关 OpenAI 出口补 `prompt_tokens_details.cached_tokens`、Responses 出口补
+  `input_tokens_details.cached_tokens`，客户端能直接读缓存明细。
+- Fixed 日志页：总 Token 改为 输入 + 输出，命中率分母改为输入总量并夹到 100%；
+  详情抽屉的输入行标注「含缓存命中」，缓存行标注命中率。
+- Note 口径修正需要插件用新 SDK 重编（已发 0.1.5）；**历史日志的 input_tokens 仍是旧口径**，
+  只有新请求的数字是统一的。
+
 ## 缓存命中统计修复 + 日志账号/积分 + 批量运维 + UI 重构（2026-09-21）
 
 **缓存命中一直是 0（核心根因在 SDK / 插件侧）**

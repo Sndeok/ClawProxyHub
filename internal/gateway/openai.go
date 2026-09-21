@@ -177,16 +177,28 @@ func (s *openaiSSEState) convertEvent(ev *pb.StreamEvent) string {
 			out += s.chunkRaw(map[string]interface{}{
 				"id": s.id, "object": "chat.completion.chunk", "created": s.created,
 				"model": s.model, "choices": []interface{}{},
-				"usage": map[string]interface{}{
-					"prompt_tokens":     e.MessageFinish.Usage.InputTokens,
-					"completion_tokens": e.MessageFinish.Usage.OutputTokens,
-					"total_tokens":      e.MessageFinish.Usage.InputTokens + e.MessageFinish.Usage.OutputTokens,
-				},
+				"usage": openAIUsagePayload(e.MessageFinish.Usage),
 			})
 		}
 		return out
 	}
 	return ""
+}
+
+// openAIUsagePayload 生成 OpenAI 兼容的 usage：prompt_tokens 含缓存命中，
+// prompt_tokens_details.cached_tokens 是其中的子集（OpenAI 官方口径）。
+func openAIUsagePayload(u *pb.Usage) map[string]interface{} {
+	in, out, cached := int64(0), int64(0), int64(0)
+	if u != nil {
+		in, out, cached = u.InputTokens, u.OutputTokens, u.CachedTokens
+	}
+	payload := map[string]interface{}{
+		"prompt_tokens": in, "completion_tokens": out, "total_tokens": in + out,
+	}
+	if cached > 0 {
+		payload["prompt_tokens_details"] = map[string]interface{}{"cached_tokens": cached}
+	}
+	return payload
 }
 
 // chunk 生成一个 choices[0] 带 delta 与可选 finish_reason 的 chunk。
@@ -215,6 +227,7 @@ type openaiAggregate struct {
 	finish string
 	input  int64
 	output int64
+	cached int64
 }
 
 func (a *openaiAggregate) feed(ev *pb.StreamEvent) {
@@ -238,6 +251,7 @@ func (a *openaiAggregate) feed(ev *pb.StreamEvent) {
 		a.finish = e.MessageFinish.FinishReason
 		if e.MessageFinish.Usage != nil {
 			a.input, a.output = e.MessageFinish.Usage.InputTokens, e.MessageFinish.Usage.OutputTokens
+			a.cached = e.MessageFinish.Usage.CachedTokens
 		}
 	}
 }
@@ -263,9 +277,6 @@ func (a *openaiAggregate) result() map[string]interface{} {
 	return map[string]interface{}{
 		"id": "chatcmpl-" + randHex(12), "object": "chat.completion",
 		"created": 0, "model": a.model, "choices": choices,
-		"usage": map[string]interface{}{
-			"prompt_tokens": a.input, "completion_tokens": a.output,
-			"total_tokens": a.input + a.output,
-		},
+		"usage": openAIUsagePayload(&pb.Usage{InputTokens: a.input, OutputTokens: a.output, CachedTokens: a.cached}),
 	}
 }

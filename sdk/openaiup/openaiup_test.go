@@ -153,9 +153,20 @@ func TestParserCachedAndCreditUsage(t *testing.T) {
 			wantCached: 60, wantCredit: 1.25,
 		},
 		{
-			name:       "prompt_tokens_details 缓存写入",
+			// 两个字段是同一份命中的不同叫法，取最大而不是相加
+			name:       "prompt_tokens_details 别名去重",
 			line:       `data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":30,"cache_read_input_tokens":20}}}`,
-			wantCached: 50,
+			wantCached: 30,
+		},
+		{
+			name:       "顶层与 details 同值时不去重相加",
+			line:       `data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":5,"cached_tokens":80,"prompt_tokens_details":{"cached_tokens":80}}}`,
+			wantCached: 80,
+		},
+		{
+			name:       "命中量大于输入时按输入截断",
+			line:       `data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":5,"cached_tokens":500}}`,
+			wantCached: 100,
 		},
 		{
 			name:       "无缓存字段时为 0",

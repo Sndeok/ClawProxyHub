@@ -281,7 +281,8 @@ func (s *anthSSEState) convertEvent(ev *pb.StreamEvent) string {
 			s.outputTokens = e.MessageFinish.Usage.OutputTokens
 			s.cachedTokens = e.MessageFinish.Usage.CachedTokens
 			usage = map[string]interface{}{
-				"input_tokens":  e.MessageFinish.Usage.InputTokens,
+				// Anthropic 客户端的 input_tokens 不含缓存命中，信封里是含的，这里减回去
+				"input_tokens":  anthropicInputTokens(e.MessageFinish.Usage),
 				"output_tokens": e.MessageFinish.Usage.OutputTokens,
 			}
 			// 缓存命中/写入按 Anthropic 语义透出，Claude 客户端据此展示缓存节省
@@ -298,6 +299,18 @@ func (s *anthSSEState) convertEvent(ev *pb.StreamEvent) string {
 		return out
 	}
 	return ""
+}
+
+// anthropicInputTokens 把信封口径的输入 token 换算回 Anthropic 语义。
+// 信封：input_tokens 含缓存命中（cached 是其子集）；Anthropic：input_tokens 不含。
+func anthropicInputTokens(u *pb.Usage) int64 {
+	if u == nil {
+		return 0
+	}
+	if u.CachedTokens >= u.InputTokens {
+		return 0
+	}
+	return u.InputTokens - u.CachedTokens
 }
 
 // mapStopReason 信封 finish_reason → Anthropic stop_reason。
@@ -381,7 +394,8 @@ func (a *anthAggregate) result() map[string]interface{} {
 		})
 	}
 	usage := map[string]interface{}{
-		"input_tokens": a.input, "output_tokens": a.output,
+		// 同上：Anthropic 语义的 input_tokens 不含缓存命中
+		"input_tokens": a.input - a.cached, "output_tokens": a.output,
 	}
 	if a.cached > 0 {
 		usage["cache_read_input_tokens"] = a.cached

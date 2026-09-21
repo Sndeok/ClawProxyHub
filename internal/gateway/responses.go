@@ -280,15 +280,12 @@ func (s *responsesSSEState) convertEvent(ev *pb.StreamEvent) string {
 			output = append(output, item)
 		}
 		// usage 为必填字段，缺失时补零值（Codex 严格反序列化，否则断流）。
-		var inTok, outTok int64
+		var inTok, outTok, cachedTok int64
 		if e.MessageFinish.Usage != nil {
 			inTok, outTok = e.MessageFinish.Usage.InputTokens, e.MessageFinish.Usage.OutputTokens
+			cachedTok = e.MessageFinish.Usage.CachedTokens
 		}
-		usage := map[string]interface{}{
-			"input_tokens":  inTok,
-			"output_tokens": outTok,
-			"total_tokens":  inTok + outTok,
-		}
+		usage := responsesUsagePayload(inTok, outTok, cachedTok)
 		out += respEvent("response.completed", map[string]interface{}{
 			"response": map[string]interface{}{
 				"id": s.respID, "object": "response", "model": s.model,
@@ -309,6 +306,18 @@ func respEvent(eventType string, payload map[string]interface{}) string {
 }
 
 // responsesAggregate Responses 非流式聚合。
+// responsesUsagePayload 生成 Responses 口径的 usage：input_tokens 含缓存命中，
+// input_tokens_details.cached_tokens 为其中的子集。
+func responsesUsagePayload(in, out, cached int64) map[string]interface{} {
+	usage := map[string]interface{}{
+		"input_tokens": in, "output_tokens": out, "total_tokens": in + out,
+	}
+	if cached > 0 {
+		usage["input_tokens_details"] = map[string]interface{}{"cached_tokens": cached}
+	}
+	return usage
+}
+
 type responsesAggregate struct {
 	model  string
 	text   string
@@ -318,6 +327,7 @@ type responsesAggregate struct {
 	finish string
 	input  int64
 	output int64
+	cached int64
 }
 
 func (a *responsesAggregate) feed(ev *pb.StreamEvent) {
@@ -342,6 +352,7 @@ func (a *responsesAggregate) feed(ev *pb.StreamEvent) {
 		a.finish = e.MessageFinish.FinishReason
 		if e.MessageFinish.Usage != nil {
 			a.input, a.output = e.MessageFinish.Usage.InputTokens, e.MessageFinish.Usage.OutputTokens
+			a.cached = e.MessageFinish.Usage.CachedTokens
 		}
 	}
 }
@@ -367,10 +378,7 @@ func (a *responsesAggregate) result() map[string]interface{} {
 	return map[string]interface{}{
 		"id": "resp_" + randHex(16), "object": "response", "model": a.model,
 		"status": "completed", "output": output,
-		"usage": map[string]interface{}{
-			"input_tokens": a.input, "output_tokens": a.output,
-			"total_tokens": a.input + a.output,
-		},
+		"usage": responsesUsagePayload(a.input, a.output, a.cached),
 	}
 }
 
