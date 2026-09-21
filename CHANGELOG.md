@@ -1,5 +1,29 @@
 # Changelog
 
+## 第 1 步重构：协议公共层 + 管理后台拆包 + 前端组件化（2026-09-21）
+
+**后端（纯搬家，行为不变）**
+- Added `internal/gateway/aggregate.go`：三种出口（OpenAI Chat / Responses / Anthropic Messages）的
+  非流式聚合收敛为 `aggregateCore`（文本 + 工具调用按 index 归位 + 用量 + 结束原因 + 出现顺序），
+  三份近乎相同的 `feed()` 合并为一；`aggrTool` 从 anthropic.go 移到公共处。
+- Changed `internal/admin`：新增 `plugins.go`（插件列表与授权方式视图），账号 CRUD/登录 handler 归入
+  `accounts.go`，`server.go` 只留装配与通用工具。
+- 净减约 250 行重复代码；`go test ./...` 全绿（含三协议流式/非流式回归）。
+
+**前端**
+- Added 公共组件：`PageHeader` / `DataTable` / `StatusTag` / `TokenCell` / `Pager`，
+  以及 `usePagedList` 组合式函数与 `utils/format.ts` 格式化工具。
+- Changed `main.ts` 从 TDesign 全量注册改为**按需注册 43 个组件**（新增组件需在此补一行）。
+- Changed Vite 增加 vendor 分包：入口 JS **1504 KB → 38.6 KB**，`vendor-tdesign` / `vendor-vue` /
+  `vendor-misc` 可长期缓存，`vendor-echarts` 只在概览页加载。
+- Changed 各页右上角操作区统一为 `.page-actions`（标题由 Layout 顶栏承担，不再各写一份标题区）。
+- Changed `Accounts.vue` 抽出 `AccountDetailDrawer.vue`（账号详情 + 动态区块 + 任务历史渲染）。
+- Changed `TokenCell` 用 SVG 图标 + 文字标签替代 `↓↑⚡` 符号（可访问性：不靠符号单独表意）。
+
+**待办（下一步）**
+- `Accounts.vue` 仍剩「添加向导 / 编辑弹窗 / 在线测试」三块，与列表共享较多状态，需按 props/emit 重新划分。
+- `Tasks.vue` 的运行状态标签可复用 `StatusTag`（当前仍是内联 t-tag，语义与 HTTP 状态不同）。
+
 ## 用量口径统一：缓存命中不再算两遍（2026-09-21）
 
 背景：日志详情里出现过「输入 70638 / 输出 1948 / 缓存命中 64320 / 总 Token 136906」，

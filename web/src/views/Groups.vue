@@ -1,19 +1,20 @@
 <template>
   <div class="page">
-    <div class="page-header">
-      
+    <div class="page-actions">
       <t-button theme="primary" @click="createVisible = true">{{ $t('groups.create') }}</t-button>
     </div>
-    <t-table row-key="id" :data="groups" :columns="columns">
-      <template #op="{ row }">
-        <t-space size="small">
-          <t-link theme="primary" @click="openBind(row)">{{ $t('groups.bind') }}</t-link>
-          <t-popconfirm :content="$t('groups.confirmDelete')" @confirm="remove(row.id)">
-            <t-link theme="danger">{{ $t('common.delete') }}</t-link>
-          </t-popconfirm>
-        </t-space>
-      </template>
-    </t-table>
+    <DataTable>
+      <t-table row-key="id" :data="groups" :columns="columns">
+        <template #op="{ row }">
+          <t-space size="small">
+            <t-link theme="primary" @click="openBind(row)">{{ $t('groups.bind') }}</t-link>
+            <t-popconfirm :content="$t('groups.confirmDelete')" @confirm="remove(row.id)">
+              <t-link theme="danger">{{ $t('common.delete') }}</t-link>
+            </t-popconfirm>
+          </t-space>
+        </template>
+      </t-table>
+    </DataTable>
 
     <t-dialog v-model:visible="createVisible" :header="$t('groups.create')" :confirm-btn="{ loading: creating }" @confirm="create">
       <t-form label-width="90px">
@@ -41,6 +42,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { api } from '../api/client'
+import DataTable from '../components/DataTable.vue'
 import BindSelect from '../components/BindSelect.vue'
 import type { GroupInfo } from '../api/types'
 

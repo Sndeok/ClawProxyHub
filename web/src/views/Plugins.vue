@@ -1,7 +1,6 @@
 <template>
   <div class="page">
-    <div class="page-header">
-      
+    <div class="page-actions">
       <t-space>
         <t-button variant="outline" :loading="marketLoading" @click="loadMarket">{{ $t('plugins.market') }}</t-button>
         <t-upload

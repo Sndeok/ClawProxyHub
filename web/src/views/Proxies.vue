@@ -1,20 +1,21 @@
 <template>
   <div class="page">
-    <div class="page-header">
-      
+    <div class="page-actions">
       <t-button theme="primary" @click="openCreate">{{ $t('proxies.create') }}</t-button>
     </div>
-    <t-table row-key="ID" :data="proxies" :columns="columns">
-      <template #op="{ row }">
-        <t-space size="small">
-          <t-link theme="primary" :loading="testingId === row.ID" @click="test(row)">{{ $t('proxies.test') }}</t-link>
-          <t-link theme="default" @click="openEdit(row)">{{ $t('common.edit') }}</t-link>
-          <t-popconfirm :content="$t('proxies.confirmDelete')" @confirm="remove(row.ID)">
-            <t-link theme="danger">{{ $t('common.delete') }}</t-link>
-          </t-popconfirm>
-        </t-space>
-      </template>
-    </t-table>
+    <DataTable>
+      <t-table row-key="ID" :data="proxies" :columns="columns">
+        <template #op="{ row }">
+          <t-space size="small">
+            <t-link theme="primary" :loading="testingId === row.ID" @click="test(row)">{{ $t('proxies.test') }}</t-link>
+            <t-link theme="default" @click="openEdit(row)">{{ $t('common.edit') }}</t-link>
+            <t-popconfirm :content="$t('proxies.confirmDelete')" @confirm="remove(row.ID)">
+              <t-link theme="danger">{{ $t('common.delete') }}</t-link>
+            </t-popconfirm>
+          </t-space>
+        </template>
+      </t-table>
+    </DataTable>
 
     <t-dialog v-model:visible="createVisible" :header="editingId ? $t('proxies.edit') : $t('proxies.create')" :confirm-btn="{ loading: creating }" @confirm="submit">
       <t-form label-width="80px">
@@ -51,6 +52,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { api } from '../api/client'
+import DataTable from '../components/DataTable.vue'
 
 const { t } = useI18n()
 

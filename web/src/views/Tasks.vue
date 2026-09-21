@@ -1,7 +1,6 @@
 <template>
   <div class="page">
-    <div class="page-header">
-      
+    <div class="page-actions">
       <div class="header-actions">
         <t-popconfirm
           :content="$t('tasks.runAllConfirm', { n: rules.length })"

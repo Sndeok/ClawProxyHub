@@ -1,39 +1,40 @@
 <template>
   <div class="page">
-    <div class="page-header">
-      
+    <div class="page-actions">
       <t-button theme="primary" @click="createVisible = true">{{ $t('keys.create') }}</t-button>
     </div>
-    <t-table row-key="id" :data="keys" :columns="columns">
-      <template #key="{ row }">
-        <span class="key-mask">
-          {{ row.key_mask }}
-          <t-tooltip :content="$t('keys.copyPlain')">
-            <file-copy-icon class="copy-icon" @click="copyKey(row)" />
-          </t-tooltip>
-        </span>
-      </template>
-      <template #enabled="{ row }">
-        <t-switch :value="row.enabled" @change="() => toggle(row)" />
-      </template>
-      <template #routes="{ row }">
-        <template v-if="row.route_ids?.length">
-          <t-tag v-for="rid in row.route_ids" :key="rid" size="small" variant="light">
-            {{ routeName(rid) }}
-          </t-tag>
+    <DataTable>
+      <t-table row-key="id" :data="keys" :columns="columns">
+        <template #key="{ row }">
+          <span class="key-mask">
+            {{ row.key_mask }}
+            <t-tooltip :content="$t('keys.copyPlain')">
+              <file-copy-icon class="copy-icon" @click="copyKey(row)" />
+            </t-tooltip>
+          </span>
         </template>
-        <t-tag v-else size="small" theme="primary" variant="light">{{ $t('keys.allRoutes') }}</t-tag>
-      </template>
-      <template #op="{ row }">
-        <t-space size="small">
-          <t-link theme="primary" @click="openRename(row)">{{ $t('common.edit') }}</t-link>
-          <t-link theme="primary" @click="bindVisible = row.id">{{ $t('keys.bindRoutes') }}</t-link>
-          <t-popconfirm :content="$t('keys.confirmDelete')" @confirm="remove(row.id)">
-            <t-link theme="danger">{{ $t('common.delete') }}</t-link>
-          </t-popconfirm>
-        </t-space>
-      </template>
-    </t-table>
+        <template #enabled="{ row }">
+          <t-switch :value="row.enabled" @change="() => toggle(row)" />
+        </template>
+        <template #routes="{ row }">
+          <template v-if="row.route_ids?.length">
+            <t-tag v-for="rid in row.route_ids" :key="rid" size="small" variant="light">
+              {{ routeName(rid) }}
+            </t-tag>
+          </template>
+          <t-tag v-else size="small" theme="primary" variant="light">{{ $t('keys.allRoutes') }}</t-tag>
+        </template>
+        <template #op="{ row }">
+          <t-space size="small">
+            <t-link theme="primary" @click="openRename(row)">{{ $t('common.edit') }}</t-link>
+            <t-link theme="primary" @click="bindVisible = row.id">{{ $t('keys.bindRoutes') }}</t-link>
+            <t-popconfirm :content="$t('keys.confirmDelete')" @confirm="remove(row.id)">
+              <t-link theme="danger">{{ $t('common.delete') }}</t-link>
+            </t-popconfirm>
+          </t-space>
+        </template>
+      </t-table>
+    </DataTable>
 
     <!-- 创建密钥 -->
     <t-dialog v-model:visible="createVisible" :header="$t('keys.create')" :confirm-btn="{ loading: creating }" @confirm="submitCreate">
@@ -71,6 +72,7 @@ import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { FileCopyIcon } from 'tdesign-icons-vue-next'
 import { api } from '../api/client'
+import DataTable from '../components/DataTable.vue'
 import BindSelect from '../components/BindSelect.vue'
 import type { KeyInfo, RouteInfo } from '../api/types'
 

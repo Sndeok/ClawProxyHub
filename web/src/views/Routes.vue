@@ -1,7 +1,6 @@
 <template>
   <div class="page">
-    <div class="page-header">
-      
+    <div class="page-actions">
       <div class="header-actions">
         <t-popup v-model:visible="syncVisible" trigger="click" placement="bottom-end">
           <t-button variant="outline" :loading="syncing">

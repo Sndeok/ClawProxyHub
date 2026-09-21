@@ -1,7 +1,6 @@
 <template>
   <div class="page">
-    <div class="page-header">
-      
+    <div class="page-actions">
     </div>
 
     <div class="settings-grid">
