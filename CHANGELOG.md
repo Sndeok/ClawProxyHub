@@ -11,7 +11,7 @@
   把图片/文件 data URL 转成 Anthropic `image` / `document` block。老插件可继续接收纯文本，
   新版插件 0.1.2 已重新构建。
 - Added 多模态回归测试：网关解析、protobuf round-trip、OpenAI Chat 适配、Anthropic 适配。
-- Published `lobsterai v0.1.2` / `workbuddy v0.1.2`，插件仓库 CI 对着本 fork 的核心 SDK 重建发布。
+- Published `lobsterai v0.1.3` / `workbuddy v0.1.3`，插件仓库 CI 对着本 fork 的核心 SDK 重建发布。
 
 ## 移植上游 v1.0.2 / v1.0.3（B+C+D 批）
 
