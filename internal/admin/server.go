@@ -283,7 +283,7 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 				Remaining string `json:"remaining"`
 			}
 			if json.Unmarshal([]byte(a.CreditsJSON), &c) == nil && (c.Total != "" || c.Remaining != "") {
-				exp := accountpkg.CreditExpiryOf(a.CreditsJSON)
+				exp := account.CreditExpiryOf(a.CreditsJSON)
 				next := ""
 				if !exp.NextAt.IsZero() {
 					next = exp.NextAt.Format("2006-01-02 15:04:05")
