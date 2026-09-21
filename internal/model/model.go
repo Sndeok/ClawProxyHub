@@ -77,7 +77,7 @@ type Group struct {
 type Key struct {
 	ID        int64  `gorm:"primaryKey;autoIncrement"`
 	KeyCipher string `gorm:"uniqueIndex;size:256;column:key_cipher"`
-	KeyHash    string `gorm:"column:key_hash;index;size:64"` // SHA-256 hex(raw)
+	KeyHash   string `gorm:"column:key_hash;index;size:64"` // SHA-256 hex(raw)
 	Name      string `gorm:"size:128;default:''"`
 	Enabled   bool   `gorm:"default:true"`
 	ExpiresAt *time.Time
@@ -196,21 +196,36 @@ type RequestLog struct {
 	Protocol       string `gorm:"size:32;default:''"`
 	Stream         bool   `gorm:"column:stream;default:false"` // 客户端是否请求流式
 	Status         int32
-	FinishReason   string `gorm:"column:finish_reason;size:32;default:''"` // stop/tool_calls/length...
-	Attempts       int32  `gorm:"column:attempts;default:1"`              // 含重试/换号/降级的总尝试次数
-	ErrorType      string `gorm:"column:error_type;size:32;default:''"`   // 空 = 成功
-	InputTokens    int32  `gorm:"column:input_tokens;default:0"`
-	OutputTokens   int32  `gorm:"column:output_tokens;default:0"`
-	LatencyMs      int32  `gorm:"column:latency_ms;default:0"`
-	FirstTokenMs   int32  `gorm:"column:first_token_ms;default:0"` // 首字耗时
-	CachedTokens   int32  `gorm:"column:cached_tokens;default:0"`  // 缓存命中 token
-	ClientIP       string `gorm:"column:client_ip;size:64;default:''"`
-	UserAgent      string `gorm:"column:user_agent;size:256;default:''"`
-	ErrorBrief     string `gorm:"column:error_brief;size:512;default:''"`
+	FinishReason   string    `gorm:"column:finish_reason;size:32;default:''"` // stop/tool_calls/length...
+	Attempts       int32     `gorm:"column:attempts;default:1"`               // 含重试/换号/降级的总尝试次数
+	ErrorType      string    `gorm:"column:error_type;size:32;default:''"`    // 空 = 成功
+	InputTokens    int32     `gorm:"column:input_tokens;default:0"`
+	OutputTokens   int32     `gorm:"column:output_tokens;default:0"`
+	LatencyMs      int32     `gorm:"column:latency_ms;default:0"`
+	FirstTokenMs   int32     `gorm:"column:first_token_ms;default:0"` // 首字耗时
+	CachedTokens   int32     `gorm:"column:cached_tokens;default:0"`  // 缓存命中 token
+	CreditUsed     float64   `gorm:"column:credit_used;default:0"`    // 本次请求消耗积分（插件上报，0 = 未知）
+	ClientIP       string    `gorm:"column:client_ip;size:64;default:''"`
+	UserAgent      string    `gorm:"column:user_agent;size:256;default:''"`
+	ErrorBrief     string    `gorm:"column:error_brief;size:512;default:''"`
 	CreatedAt      time.Time `gorm:"index"`
 }
 
 func (RequestLog) TableName() string { return "request_logs" }
+
+// AccountCreditDaily 账号每日积分快照：用「当天基线 - 当前剩余」推算今日消耗积分。
+// samples = 0 表示只有占位没有有效观测，此时不参与展示。
+type AccountCreditDaily struct {
+	AccountID int64     `gorm:"column:account_id;primaryKey" json:"account_id"`
+	Day       string    `gorm:"column:day;primaryKey;size:16" json:"day"`
+	Remaining float64   `gorm:"column:remaining;default:0" json:"remaining"`
+	Baseline  float64   `gorm:"column:baseline;default:0" json:"baseline"`
+	Used      float64   `gorm:"column:used;default:0" json:"used"`
+	Samples   int64     `gorm:"column:samples;default:0" json:"samples"`
+	UpdatedAt time.Time `gorm:"column:updated_at" json:"updated_at"`
+}
+
+func (AccountCreditDaily) TableName() string { return "account_credit_daily" }
 
 // Setting 系统设置 KV。
 type Setting struct {
@@ -218,6 +233,7 @@ type Setting struct {
 	Value     string
 	UpdatedAt time.Time `gorm:"column:updated_at"`
 }
+
 // PluginStorage 插件持久化 KV（按插件隔离）。
 type PluginStorage struct {
 	Plugin    string `gorm:"primaryKey;size:64"`
@@ -227,4 +243,3 @@ type PluginStorage struct {
 }
 
 func (PluginStorage) TableName() string { return "plugin_storage" }
-

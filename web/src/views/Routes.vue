@@ -2,9 +2,31 @@
   <div class="page">
     <div class="page-header">
       
-      <t-button theme="primary" @click="openCreate">{{ $t('routes.create') }}</t-button>
+      <div class="header-actions">
+        <t-popup v-model:visible="syncVisible" trigger="click" placement="bottom-end">
+          <t-button variant="outline" :loading="syncing">
+            <template #icon><refresh-icon /></template>
+            {{ $t('routes.syncUpstream') }}
+          </t-button>
+          <template #content>
+            <div class="sync-panel">
+              <div class="sync-title">{{ $t('routes.syncUpstream') }}</div>
+              <p class="sync-desc">{{ $t('routes.syncConfirm') }}</p>
+              <t-checkbox v-model="syncRefresh">{{ $t('routes.syncRefresh') }}</t-checkbox>
+              <div class="sync-actions">
+                <t-button size="small" theme="primary" :loading="syncing" @click="syncUpstream">
+                  {{ $t('routes.syncRun') }}
+                </t-button>
+                <t-button size="small" variant="text" @click="syncVisible = false">{{ $t('routes.syncCancel') }}</t-button>
+              </div>
+            </div>
+          </template>
+        </t-popup>
+        <t-button theme="primary" @click="openCreate">{{ $t('routes.create') }}</t-button>
+      </div>
     </div>
-    <t-table row-key="ID" :data="routes" :columns="columns">
+    <div class="table-wrap">
+      <t-table row-key="ID" :data="routes" :columns="columns" table-layout="auto">
       <template #strategy="{ row }">
         <t-tag variant="light">{{ dict(strategyDict, row.Strategy) }}</t-tag>
       </template>
@@ -32,7 +54,8 @@
           </t-popconfirm>
         </t-space>
       </template>
-    </t-table>
+      </t-table>
+    </div>
 
     <t-dialog v-model:visible="dialogVisible" :header="editingID ? $t('routes.editTitle') : $t('routes.create')" width="760px" :confirm-btn="{ loading: saving }" @confirm="save">
       <t-form label-width="90px">
@@ -89,6 +112,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
+import { RefreshIcon } from 'tdesign-icons-vue-next'
 import { api } from '../api/client'
 import BindSelect from '../components/BindSelect.vue'
 import { dict, strategyDict } from '../utils/dict'
@@ -233,10 +257,72 @@ async function remove(id: number) {
   await load()
 }
 
+// ---------- 一键同步上游模型 ----------
+
+const syncVisible = ref(false)
+const syncing = ref(false)
+const syncRefresh = ref(false)
+
+// 遍历账号模型目录补齐缺失路由；同名路由一律不动（人工配置不被覆盖）
+async function syncUpstream() {
+  syncing.value = true
+  try {
+    const r = await api.post<{
+      models: number
+      created: string[]
+      skipped: string[]
+      accounts: number
+    }>('/admin/routes/sync-models', { refresh: syncRefresh.value })
+    if (!r.accounts) {
+      MessagePlugin.warning(t('routes.syncNoAccounts'))
+    } else {
+      MessagePlugin.success(t('routes.syncDone', { models: r.models, created: r.created.length, skipped: r.skipped.length }))
+    }
+    syncVisible.value = false
+    await load()
+  } catch (e: any) {
+    MessagePlugin.error(e.message)
+  } finally {
+    syncing.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
 <style scoped>
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sync-panel {
+  width: 300px;
+  padding: 2px;
+}
+.sync-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.sync-desc {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--cph-text-2);
+}
+.sync-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.table-wrap {
+  background: var(--cph-surface);
+  border: 1px solid var(--cph-border);
+  border-radius: var(--cph-radius-lg);
+  overflow: hidden;
+}
 .entries { width: 100% }
 .entry { display: flex; gap: 8px; align-items: center; margin-bottom: 8px }
 .hint { margin-left: 8px; color: var(--td-text-color-placeholder); font-size: 12px }

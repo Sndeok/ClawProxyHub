@@ -97,3 +97,70 @@ func TestChatBodyUsesMultimodalContentJSON(t *testing.T) {
 		t.Fatalf("image source not normalized: %#v", source)
 	}
 }
+
+// TestParserCacheUsage 回归：message_start 里的缓存命中/写入必须合并进 message_finish 的 usage。
+// 之前这里只取 message_delta 的 output_tokens，缓存与输入 token 全丢，日志里缓存命中恒为 0。
+func TestParserCacheUsage(t *testing.T) {
+	var out []*pb.StreamEvent
+	p := NewParser(func(ev *pb.StreamEvent) { out = append(out, ev) })
+	for _, l := range []string{
+		`data: {"type":"message_start","message":{"model":"claude-x","usage":{"input_tokens":1200,"cache_creation_input_tokens":300,"cache_read_input_tokens":900}}}`,
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}`,
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":42}}`,
+	} {
+		p.Feed(l)
+	}
+	p.Finish()
+
+	var fin *pb.StreamEvent_MessageFinish
+	for _, ev := range out {
+		if f, ok := ev.Event.(*pb.StreamEvent_MessageFinish); ok {
+			fin = f
+		}
+	}
+	if fin == nil {
+		t.Fatalf("no message_finish: %+v", out)
+	}
+	u := fin.MessageFinish.Usage
+	if u == nil {
+		t.Fatal("usage 丢失")
+	}
+	if u.InputTokens != 1200 {
+		t.Errorf("input = %d, want 1200", u.InputTokens)
+	}
+	if u.OutputTokens != 42 {
+		t.Errorf("output = %d, want 42", u.OutputTokens)
+	}
+	if u.CachedTokens != 900 {
+		t.Errorf("cached = %d, want 900（cache_read_input_tokens）", u.CachedTokens)
+	}
+	if fin.MessageFinish.FinishReason != "stop" {
+		t.Errorf("finish_reason = %q, want stop", fin.MessageFinish.FinishReason)
+	}
+}
+
+// TestParserCacheUsageFromDelta 少数上游只在 message_delta 里补一次输入侧用量。
+func TestParserCacheUsageFromDelta(t *testing.T) {
+	var out []*pb.StreamEvent
+	p := NewParser(func(ev *pb.StreamEvent) { out = append(out, ev) })
+	for _, l := range []string{
+		`data: {"type":"message_start","message":{"model":"claude-x","usage":{"input_tokens":500}}}`,
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":10,"input_tokens":500,"cache_read_input_tokens":400}}`,
+	} {
+		p.Feed(l)
+	}
+	p.Finish()
+
+	var fin *pb.StreamEvent_MessageFinish
+	for _, ev := range out {
+		if f, ok := ev.Event.(*pb.StreamEvent_MessageFinish); ok {
+			fin = f
+		}
+	}
+	if fin == nil || fin.MessageFinish.Usage == nil {
+		t.Fatalf("usage 丢失: %+v", out)
+	}
+	if got := fin.MessageFinish.Usage.CachedTokens; got != 400 {
+		t.Errorf("cached = %d, want 400", got)
+	}
+}

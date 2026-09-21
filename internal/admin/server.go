@@ -72,6 +72,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/accounts/{id}/models", s.auth(s.accountModels))
 	mux.HandleFunc("DELETE /admin/accounts/{id}", s.auth(s.deleteAccount))
 	mux.HandleFunc("POST /admin/accounts/{id}/refresh", s.auth(s.refreshAccount))
+	mux.HandleFunc("POST /admin/accounts/refresh-all", s.auth(s.refreshAllAccounts))
 	mux.HandleFunc("POST /admin/accounts/{id}/pause", s.auth(s.pauseAccount))
 	mux.HandleFunc("POST /admin/accounts/{id}/resume", s.auth(s.resumeAccount))
 	mux.HandleFunc("PUT /admin/accounts/{id}", s.auth(s.updateAccount))
@@ -100,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/routes", s.auth(s.createRoute))
 	mux.HandleFunc("PUT /admin/routes/{id}", s.auth(s.updateRoute))
 	mux.HandleFunc("DELETE /admin/routes/{id}", s.auth(s.deleteRoute))
+	mux.HandleFunc("POST /admin/routes/sync-models", s.auth(s.syncRoutes))
 	mux.HandleFunc("GET /admin/settings", s.auth(s.getSettings))
 	mux.HandleFunc("PUT /admin/settings", s.auth(s.putSettings))
 	mux.HandleFunc("POST /admin/settings/test-market", s.auth(s.testMarket))
@@ -108,6 +110,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /admin/task-rules/{id}/toggle", s.auth(s.toggleTaskRule))
 	mux.HandleFunc("DELETE /admin/task-rules/{id}", s.auth(s.deleteTaskRule))
 	mux.HandleFunc("POST /admin/task-rules/{id}/run", s.auth(s.runTaskRule))
+	mux.HandleFunc("POST /admin/task-rules/run-all", s.auth(s.runAllTaskRules))
 	mux.HandleFunc("GET /admin/task-runs", s.auth(s.listTaskRuns))
 	mux.HandleFunc("GET /admin/logs", s.auth(s.listLogs))
 	mux.HandleFunc("POST /admin/logs/cleanup", s.auth(s.logCleanup))
@@ -238,11 +241,26 @@ func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
 			Remaining string `json:"remaining,omitempty"`
 			Total     string `json:"total,omitempty"`
 		} `json:"credits,omitempty"`
+		// 今日用量：token / 缓存 / 积分（积分优先取插件上报的逐次累加，缺失时用积分快照差值估算）
+		TodayTokens   int64   `json:"today_tokens"`
+		TodayCached   int64   `json:"today_cached"`
+		TodayCredits  float64 `json:"today_credits"`
+		TodayCreditsE bool    `json:"today_credits_estimated"`
+		TodayRequests int64   `json:"today_requests"`
 	}
+	today := todayStatsByAccount(s.db)
 	var out []acctView
 	for _, a := range accts {
 		v := acctView{ID: a.ID, PluginID: a.PluginID, GroupIDs: accountGroupIDs(s.db, a.ID), Name: a.DisplayName,
 			Status: a.Status, PauseReason: a.PauseReason}
+		if t := today[a.ID]; t != nil {
+			v.TodayTokens, v.TodayCached = t.Tokens, t.Cached
+			v.TodayRequests, v.TodayCredits = t.Requests, t.Credits
+			if t.Credits == 0 && t.HasSnap && t.Snapshot > 0 {
+				// 插件还没上报逐次积分：用上游积分快照差值兜底（前端标注估算）
+				v.TodayCredits, v.TodayCreditsE = t.Snapshot, true
+			}
+		}
 		if a.PausedUntil != nil {
 			t := a.PausedUntil.Format("2006-01-02T15:04:05Z07:00")
 			v.PausedUntil = &t

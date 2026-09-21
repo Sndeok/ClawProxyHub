@@ -188,6 +188,7 @@ type anthSSEState struct {
 	stopReason   string
 	inputTokens  int64
 	outputTokens int64
+	cachedTokens int64 // 上游透出的缓存命中 token（无则不输出该字段）
 }
 
 func newAnthSSEState(model string) *anthSSEState {
@@ -278,9 +279,14 @@ func (s *anthSSEState) convertEvent(ev *pb.StreamEvent) string {
 		usage := map[string]interface{}{"input_tokens": s.inputTokens}
 		if e.MessageFinish.Usage != nil {
 			s.outputTokens = e.MessageFinish.Usage.OutputTokens
+			s.cachedTokens = e.MessageFinish.Usage.CachedTokens
 			usage = map[string]interface{}{
 				"input_tokens":  e.MessageFinish.Usage.InputTokens,
 				"output_tokens": e.MessageFinish.Usage.OutputTokens,
+			}
+			// 缓存命中/写入按 Anthropic 语义透出，Claude 客户端据此展示缓存节省
+			if e.MessageFinish.Usage.CachedTokens > 0 {
+				usage["cache_read_input_tokens"] = e.MessageFinish.Usage.CachedTokens
 			}
 		}
 		out += anthEvent("message_delta", map[string]interface{}{
@@ -325,6 +331,7 @@ type anthAggregate struct {
 	stop    string
 	input   int64
 	output  int64
+	cached  int64
 	started bool
 }
 
@@ -355,6 +362,7 @@ func (a *anthAggregate) feed(ev *pb.StreamEvent) {
 		a.stop = mapStopReason(e.MessageFinish.FinishReason)
 		if e.MessageFinish.Usage != nil {
 			a.input, a.output = e.MessageFinish.Usage.InputTokens, e.MessageFinish.Usage.OutputTokens
+			a.cached = e.MessageFinish.Usage.CachedTokens
 		}
 	}
 }
@@ -372,11 +380,15 @@ func (a *anthAggregate) result() map[string]interface{} {
 			"input": json.RawMessage(t.input),
 		})
 	}
+	usage := map[string]interface{}{
+		"input_tokens": a.input, "output_tokens": a.output,
+	}
+	if a.cached > 0 {
+		usage["cache_read_input_tokens"] = a.cached
+	}
 	return map[string]interface{}{
 		"id": "msg_" + randHex(12), "type": "message", "role": "assistant",
 		"model": a.model, "content": content, "stop_reason": a.stop,
-		"usage": map[string]interface{}{
-			"input_tokens": a.input, "output_tokens": a.output,
-		},
+		"usage": usage,
 	}
 }

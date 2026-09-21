@@ -188,3 +188,39 @@ func TestOpenAISSEAndAggregate(t *testing.T) {
 		t.Errorf("aggregated content wrong: %s", b)
 	}
 }
+
+// TestAnthropicSSECacheTokens 回归：上游透出缓存命中时，Anthropic 出口要带
+// cache_read_input_tokens（客户端据此展示缓存节省），没有命中则不应出现该字段。
+func TestAnthropicSSECacheTokens(t *testing.T) {
+	st := newAnthSSEState("glm-5.3")
+	var sb strings.Builder
+	sb.WriteString(st.convertEvent(&pb.StreamEvent{Event: &pb.StreamEvent_MessageStart{
+		MessageStart: &pb.MessageStart{Model: "glm-5.3"},
+	}}))
+	sb.WriteString(st.convertEvent(&pb.StreamEvent{Event: &pb.StreamEvent_MessageFinish{
+		MessageFinish: &pb.MessageFinish{
+			FinishReason: "stop",
+			Usage:        &pb.Usage{InputTokens: 100, OutputTokens: 5, CachedTokens: 80},
+		},
+	}}))
+	out := sb.String()
+	if !strings.Contains(out, `"cache_read_input_tokens":80`) {
+		t.Errorf("命中缓存时缺少 cache_read_input_tokens:\n%s", out)
+	}
+
+	// 无命中：不输出该字段（0 值对 Anthropic 客户端无意义）
+	st2 := newAnthSSEState("glm-5.3")
+	var sb2 strings.Builder
+	sb2.WriteString(st2.convertEvent(&pb.StreamEvent{Event: &pb.StreamEvent_MessageStart{
+		MessageStart: &pb.MessageStart{Model: "glm-5.3"},
+	}}))
+	sb2.WriteString(st2.convertEvent(&pb.StreamEvent{Event: &pb.StreamEvent_MessageFinish{
+		MessageFinish: &pb.MessageFinish{
+			FinishReason: "stop",
+			Usage:        &pb.Usage{InputTokens: 100, OutputTokens: 5},
+		},
+	}}))
+	if strings.Contains(sb2.String(), "cache_read_input_tokens") {
+		t.Errorf("未命中缓存时不应输出 cache_read_input_tokens:\n%s", sb2.String())
+	}
+}

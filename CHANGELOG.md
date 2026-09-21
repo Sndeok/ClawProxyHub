@@ -1,5 +1,47 @@
 # Changelog
 
+## 缓存命中统计修复 + 日志账号/积分 + 批量运维 + UI 重构（2026-09-21）
+
+**缓存命中一直是 0（核心根因在 SDK / 插件侧）**
+- Fixed `sdk/openaiup`：此前只解析 `prompt_tokens` / `completion_tokens`，`cached_tokens`、
+  `prompt_tokens_details.cached_tokens`、`input_tokens_details.cached_tokens`、
+  `cache_read_input_tokens` 全部丢弃 —— 这就是日志里缓存命中恒为 0 的直接原因。
+- Fixed `sdk/anthropicup`：`message_start` 里的 `input_tokens`、`cache_read_input_tokens`、
+  `cache_creation_input_tokens` 之前只解析不使用，`message_finish` 只带 `output_tokens`；
+  现在按字段取较大值合并上报（上游分片上报，非累加语义），并补两条回归测试。
+- Added 网关 Anthropic 出口透出缓存字段，Claude 协议客户端能看到 `cache_read_input_tokens`。
+- Note 该修复在 SDK 内，需要插件用新 SDK 重新编译后才生效（插件 0.1.4 已重新发布）。
+
+**日志：账号 + 积分消耗**
+- Added `Usage.credit_used` protobuf 字段（field 4，proto3 默认 0，旧插件天然兼容）与
+  `request_logs.credit_used` 列（迁移 `000005`）。
+- Added `account_credit_daily` 表：每次账号刷新按「当天基线 - 当前剩余」推算今日积分消耗，
+  充值会把基线上移，不会算成负消耗。
+- Added 日志列表「账号」列（点开详情仍有完整字段）与「积分」列（未上报显示 `-`），
+  Token 单元格补充缓存命中率，工具条显示本页汇总（Σ Token / 命中率 / 积分）。
+
+**批量运维入口**
+- Added `POST /admin/accounts/refresh-all`：并发（默认 3）刷新所有账号，返回逐条失败明细。
+- Added `POST /admin/routes/sync-models`：把各分组下账号的上游模型并集补齐成路由，
+  **只新建缺失的同名路由**，已存在的路由（含人工策略/权重/降级）一律不动；
+  `refresh=true` 时先拉一遍上游模型目录。
+- Added `POST /admin/task-rules/run-all`：后台串行执行规则（签到类逐账号），立即返回已触发条数，
+  结果写任务历史 —— 避免几十个账号把 HTTP 请求拖超时。
+- Added `GET /admin/accounts` 返回 `today_tokens` / `today_cached` / `today_credits`（含
+  `today_credits_estimated` 估算标记）/ `today_requests`。
+
+**UI 重构**
+- Fixed 侧栏展开时右侧内容被遮挡：内容区改双向滚动，表格统一包一层横向滚动容器，
+  多个 `t-menu` 的 `height: 100%` 把后几组菜单挤出屏幕的问题也一并修掉。
+- Changed 整套主题重做（`assets/theme.css`）：统一色板/圆角/描边/阴影，卡片、表格、菜单、
+  表单控件对齐同一套设计变量；日志表明暗两套配色都重调了对比度。
+- Changed 侧栏按「总览 / 资源 / 流量 / 运维」分组，品牌区加副标题，选中态改为左侧指示条；
+  账号页「一键刷新」、路由页「同步上游模型」、任务页「全部执行」都进了页面头部操作区。
+- Changed 日志表列合并：请求模型与上游模型合成一列（路由改写时显示 `别名 → 真实模型`），
+  协议与流式合成一列（流式用绿点区分），窄窗口下横向滚动不再是「被裁掉」。
+- Changed 顶栏 GitHub 与发布页地址抽到 `web/src/utils/repo.ts`，默认指向二开仓库
+  `Sndeok/ClawProxyHub`（改回上游只改这一个文件）。
+
 ## 多模态 Responses / Chat / Anthropic 内容贯通（2026-09-21）
 
 - Added `EnvelopeMessage.content_json` protobuf 字段（向后兼容，不升 `ProtocolVersion`）：

@@ -1961,10 +1961,13 @@ func (x *ToolCallDelta) GetArgumentsDelta() string {
 }
 
 type Usage struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	InputTokens   int64                  `protobuf:"varint,1,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
-	OutputTokens  int64                  `protobuf:"varint,2,opt,name=output_tokens,json=outputTokens,proto3" json:"output_tokens,omitempty"`
-	CachedTokens  int64                  `protobuf:"varint,3,opt,name=cached_tokens,json=cachedTokens,proto3" json:"cached_tokens,omitempty"` // 命中缓存的输入 token（上游有透出时上报）
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	InputTokens  int64                  `protobuf:"varint,1,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
+	OutputTokens int64                  `protobuf:"varint,2,opt,name=output_tokens,json=outputTokens,proto3" json:"output_tokens,omitempty"`
+	CachedTokens int64                  `protobuf:"varint,3,opt,name=cached_tokens,json=cachedTokens,proto3" json:"cached_tokens,omitempty"` // 命中缓存的输入 token（上游有透出时上报）
+	// 本次请求消耗的积分（上游 usage 里透出了才上报，0 = 未知）。
+	// 旧插件不填该字段，proto3 默认 0，天然向后兼容。
+	CreditUsed    float64 `protobuf:"fixed64,4,opt,name=credit_used,json=creditUsed,proto3" json:"credit_used,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2016,6 +2019,13 @@ func (x *Usage) GetOutputTokens() int64 {
 func (x *Usage) GetCachedTokens() int64 {
 	if x != nil {
 		return x.CachedTokens
+	}
+	return 0
+}
+
+func (x *Usage) GetCreditUsed() float64 {
+	if x != nil {
+		return x.CreditUsed
 	}
 	return 0
 }
@@ -2988,11 +2998,13 @@ const file_sdk_proto_cph_proto_rawDesc = "" +
 	"\rToolCallDelta\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12'\n" +
-	"\x0farguments_delta\x18\x03 \x01(\tR\x0eargumentsDelta\"t\n" +
+	"\x0farguments_delta\x18\x03 \x01(\tR\x0eargumentsDelta\"\x95\x01\n" +
 	"\x05Usage\x12!\n" +
 	"\finput_tokens\x18\x01 \x01(\x03R\vinputTokens\x12#\n" +
 	"\routput_tokens\x18\x02 \x01(\x03R\foutputTokens\x12#\n" +
-	"\rcached_tokens\x18\x03 \x01(\x03R\fcachedTokens\"Y\n" +
+	"\rcached_tokens\x18\x03 \x01(\x03R\fcachedTokens\x12\x1f\n" +
+	"\vcredit_used\x18\x04 \x01(\x01R\n" +
+	"creditUsed\"Y\n" +
 	"\rMessageFinish\x12#\n" +
 	"\rfinish_reason\x18\x01 \x01(\tR\ffinishReason\x12#\n" +
 	"\x05usage\x18\x02 \x01(\v2\r.cph.v1.UsageR\x05usage\"1\n" +

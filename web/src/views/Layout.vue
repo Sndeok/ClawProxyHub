@@ -1,31 +1,40 @@
 <template>
   <t-layout class="layout">
-    <t-aside :width="collapsed ? '64px' : '200px'" class="aside">
-      <div class="logo" @click="router.push('/dashboard')">
-        <img class="logo-badge" src="/logo.png" alt="ClawProxyHub" />
-        <span v-if="!collapsed" class="logo-text">Claw<span>ProxyHub</span></span>
+    <t-aside :width="collapsed ? '76px' : '232px'" class="aside">
+      <div class="brand" @click="router.push('/dashboard')">
+        <img class="brand-badge" src="/logo.png" alt="ClawProxyHub" />
+        <div v-if="!collapsed" class="brand-text">
+          <span class="brand-name">Claw<span>ProxyHub</span></span>
+          <span class="brand-sub">{{ $t('common.brandSub') }}</span>
+        </div>
       </div>
-      <t-menu
-        :value="route.path"
-        :collapsed="collapsed"
-        :width="collapsed ? '64px' : '200px'"
-        class="aside-menu"
-        @change="(v: string) => router.push(v)"
-      >
-        <t-menu-item v-for="item in menuItems" :key="item.value" :value="item.value">
-          <template #icon><component :is="item.icon" /></template>{{ $t(item.label) }}
-        </t-menu-item>
-      </t-menu>
-      <div class="aside-footer" @click="collapsed = !collapsed">
-        <template v-if="!collapsed">
-          <chevron-left-icon />
-          <span class="aside-footer-text">{{ $t('common.collapse') }}</span>
+
+      <nav class="nav">
+        <template v-for="group in menuGroups" :key="group.key">
+          <div v-if="!collapsed" class="nav-label">{{ $t('menuGroup.' + group.key) }}</div>
+          <div v-else class="nav-label nav-label--dot"></div>
+          <t-menu
+            :value="route.path"
+            :collapsed="collapsed"
+            :width="collapsed ? '76px' : '232px'"
+            class="nav-menu"
+            @change="(v: string) => router.push(v)"
+          >
+            <t-menu-item v-for="item in group.items" :key="item.value" :value="item.value">
+              <template #icon><component :is="item.icon" /></template>{{ $t(item.label) }}
+            </t-menu-item>
+          </t-menu>
         </template>
+      </nav>
+
+      <div class="aside-footer" @click="collapsed = !collapsed">
+        <chevron-left-icon v-if="!collapsed" />
         <chevron-right-icon v-else />
+        <span v-if="!collapsed" class="aside-footer-text">{{ $t('common.collapse') }}</span>
       </div>
     </t-aside>
-    <t-layout>
-      <!-- 状态头：左菜单信息 + 右操作区，固定不滚动 -->
+
+    <t-layout class="main">
       <t-header class="header">
         <div class="header-left">
           <div class="header-title">{{ $t(currentPage.label) }}</div>
@@ -35,7 +44,7 @@
           <t-tooltip v-if="version" :content="updateAvailable ? $t('common.hasUpdate') : $t('common.checkUpdate')">
             <div class="ver-chip" :class="{ 'has-update': updateAvailable, checking }" @click="checkVersion(true)">
               <t-loading v-if="checking" size="12px" />
-              <span class="ver-text">v{{ version }}</span>
+              <span class="ver-text num">v{{ version }}</span>
               <span v-if="updateAvailable && !checking" class="ver-dot" />
             </div>
           </t-tooltip>
@@ -87,9 +96,6 @@
                     <div class="user-menu-sub">{{ roleLabel }}</div>
                   </div>
                 </div>
-                <div class="user-menu-item disabled">
-                  <user-icon /> {{ $t('common.profile') }}
-                </div>
                 <div class="user-menu-item" @click="logout">
                   <poweroff-icon /> {{ $t('common.logout') }}
                 </div>
@@ -98,7 +104,7 @@
           </t-popup>
         </div>
       </t-header>
-      <!-- 内容区域：内部滚动，头部与侧栏固定 -->
+
       <t-content class="content">
         <router-view />
       </t-content>
@@ -118,6 +124,7 @@ import {
 import { MessagePlugin } from 'tdesign-vue-next'
 import { api, clearToken, getToken } from '../api/client'
 import i18n, { setLocale as applyLocale, type Locale } from '../i18n'
+import { REPO_URL, REPO_RELEASES_URL } from '../utils/repo'
 
 const route = useRoute()
 const router = useRouter()
@@ -139,9 +146,9 @@ function setLocale(l: Locale) {
   applyLocale(l)
 }
 
-// 项目主页
+// 项目主页：二开 fork 的仓库地址（需要改回上游只改 utils/repo.ts）
 function openGithub() {
-  window.open('https://github.com/ShadowSmallBaby/ClawProxyHub', '_blank')
+  window.open(REPO_URL, '_blank')
 }
 
 // ---------- 版本信息（头部徽标；点击重查，首次进页自动查一次） ----------
@@ -149,7 +156,7 @@ const version = ref('')
 const latest = ref('')
 const updateAvailable = ref(false)
 const checking = ref(false)
-const releaseUrl = ref('https://github.com/ShadowSmallBaby/ClawProxyHub/releases')
+const releaseUrl = ref(REPO_RELEASES_URL)
 
 // checkVersion 拉取本机/远端版本对比；manual=true 时弹结果提示（手动点击）。
 async function checkVersion(manual = false) {
@@ -186,22 +193,45 @@ interface MenuItem {
   icon: Component
 }
 
-const menuItems: MenuItem[] = [
-  { value: '/dashboard', label: 'menu.dashboard', desc: 'menuDesc.dashboard', icon: DashboardIcon },
-  { value: '/plugins', label: 'menu.plugins', desc: 'menuDesc.plugins', icon: AppIcon },
-  { value: '/accounts', label: 'menu.accounts', desc: 'menuDesc.accounts', icon: UserIcon },
-  { value: '/groups', label: 'menu.groups', desc: 'menuDesc.groups', icon: FolderIcon },
-  { value: '/proxies', label: 'menu.proxies', desc: 'menuDesc.proxies', icon: RootListIcon },
-  { value: '/routes', label: 'menu.routes', desc: 'menuDesc.routes', icon: InternetIcon },
-  { value: '/keys', label: 'menu.keys', desc: 'menuDesc.keys', icon: LockOnIcon },
-  { value: '/tasks', label: 'menu.tasks', desc: 'menuDesc.tasks', icon: TimeIcon },
-  { value: '/logs', label: 'menu.logs', desc: 'menuDesc.logs', icon: FileIcon },
-  { value: '/settings', label: 'menu.settings', desc: 'menuDesc.settings', icon: SettingIcon },
+// 菜单按使用频率分四组：先看总览，再配资源，然后管流量，最后做运维
+const menuGroups: { key: string; items: MenuItem[] }[] = [
+  {
+    key: 'overview',
+    items: [
+      { value: '/dashboard', label: 'menu.dashboard', desc: 'menuDesc.dashboard', icon: DashboardIcon },
+    ],
+  },
+  {
+    key: 'resource',
+    items: [
+      { value: '/plugins', label: 'menu.plugins', desc: 'menuDesc.plugins', icon: AppIcon },
+      { value: '/accounts', label: 'menu.accounts', desc: 'menuDesc.accounts', icon: UserIcon },
+      { value: '/groups', label: 'menu.groups', desc: 'menuDesc.groups', icon: FolderIcon },
+      { value: '/proxies', label: 'menu.proxies', desc: 'menuDesc.proxies', icon: RootListIcon },
+    ],
+  },
+  {
+    key: 'traffic',
+    items: [
+      { value: '/routes', label: 'menu.routes', desc: 'menuDesc.routes', icon: InternetIcon },
+      { value: '/keys', label: 'menu.keys', desc: 'menuDesc.keys', icon: LockOnIcon },
+      { value: '/logs', label: 'menu.logs', desc: 'menuDesc.logs', icon: FileIcon },
+    ],
+  },
+  {
+    key: 'ops',
+    items: [
+      { value: '/tasks', label: 'menu.tasks', desc: 'menuDesc.tasks', icon: TimeIcon },
+      { value: '/settings', label: 'menu.settings', desc: 'menuDesc.settings', icon: SettingIcon },
+    ],
+  },
 ]
+
+const flatMenu = menuGroups.flatMap((g) => g.items)
 
 // 当前菜单（含子路径前缀匹配）
 const currentPage = computed(
-  () => menuItems.find((m) => route.path.startsWith(m.value)) ?? menuItems[0],
+  () => flatMenu.find((m) => route.path.startsWith(m.value)) ?? flatMenu[0],
 )
 
 // 主题切换与收起状态持久化
@@ -226,88 +256,152 @@ function logout() {
 <style scoped>
 .layout {
   height: 100%;
+  min-width: 0;
 }
+
+/* ---------- 侧栏 ---------- */
 .aside {
-  flex-shrink: 0; /* TDesign sider 默认参与收缩，会把 220px 挤没 */
+  flex-shrink: 0; /* TDesign sider 默认参与收缩，会把侧栏挤没 */
   display: flex;
   flex-direction: column;
-  transition: width 0.25s;
+  min-width: 0;
+  background: var(--cph-bg-aside);
+  border-right: 1px solid var(--cph-border);
+  transition: width 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
   overflow: hidden;
 }
-.logo {
-  height: 64px;
-  min-width: 0;
+.brand {
+  height: 62px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 0 18px;
   cursor: pointer;
-  color: var(--td-brand-color);
-  font-size: 18px;
-  font-weight: 700;
-  flex-shrink: 0;
+  overflow: hidden;
 }
-.logo-badge {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  border: 1px solid var(--td-brand-color-3); /* 品牌色描边 */
+.brand-badge {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
   flex-shrink: 0;
   object-fit: cover;
+  box-shadow: 0 2px 8px rgba(61, 114, 245, 0.25);
 }
-.logo-text {
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.brand-name {
+  font-size: 15px;
   font-weight: 700;
   white-space: nowrap;
+  color: var(--cph-text-1);
+  letter-spacing: 0.2px;
 }
-.logo-text span {
-  font-weight: 300;
-  opacity: 0.8;
-  margin-left: 2px;
+.brand-name span {
+  font-weight: 400;
+  color: var(--td-brand-color);
 }
-.aside-menu {
+.brand-sub {
+  font-size: 10px;
+  color: var(--cph-text-3);
+  white-space: nowrap;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.nav {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  padding: 4px 10px 12px;
 }
+.nav-label {
+  padding: 12px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  color: var(--cph-text-3);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.nav-label--dot {
+  height: 12px;
+  padding: 0;
+  margin: 6px 12px;
+  border-top: 1px solid var(--cph-border);
+}
+/* TDesign 菜单默认高度 100%，多个菜单叠起来会把后面几组挤到屏幕外，这里放开 */
+.nav-menu {
+  background: transparent;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+/* 明暗两种模式下都保证菜单文字对比度 */
+.nav-menu :deep(.t-menu__item) {
+  color: var(--cph-text-2);
+  margin: 2px 0;
+}
+.nav-menu :deep(.t-menu__item:hover) {
+  color: var(--cph-text-1);
+  background: var(--cph-surface-2);
+}
+.nav-menu :deep(.t-menu__item.t-is-active) {
+  color: var(--td-brand-color);
+  font-weight: 600;
+}
+.nav-menu :deep(.t-menu__item.t-is-active .t-icon) {
+  color: var(--td-brand-color);
+}
+
 .aside-footer {
-  height: 40px;
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 6px;
   cursor: pointer;
-  color: var(--td-text-color-placeholder);
-  border-top: 1px solid var(--td-component-border);
+  color: var(--cph-text-3);
+  border-top: 1px solid var(--cph-border);
   flex-shrink: 0;
+  font-size: 12px;
+  transition: color 0.16s ease, background-color 0.16s ease;
 }
 .aside-footer:hover {
   color: var(--td-brand-color);
+  background: var(--cph-surface-2);
 }
 .aside-footer-text {
-  font-size: 12px;
   white-space: nowrap;
 }
 
-/* 状态头：左右结构，固定不滚动 */
+/* ---------- 主区 ---------- */
+.main {
+  min-width: 0;
+}
 .header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 64px;
-  padding: 0 24px;
+  gap: 16px;
+  height: 62px;
+  padding: 0 22px;
   flex-shrink: 0;
 }
 .header-left {
   min-width: 0;
 }
 .header-title {
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1.3;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.25;
 }
 .header-desc {
   font-size: 12px;
-  color: var(--td-text-color-secondary);
+  color: var(--cph-text-3);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -315,10 +409,11 @@ function logout() {
 .header-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-shrink: 0;
 }
-/* 版本 chip：默认灰字，有更新时描边高亮 + 红点，可点跳发布页 */
+
+/* 版本 chip：默认灰字，有更新时描边高亮 + 红点 */
 .ver-chip {
   display: flex;
   align-items: center;
@@ -326,26 +421,23 @@ function logout() {
   height: 26px;
   padding: 0 10px;
   border-radius: 13px;
+  border: 1px solid transparent;
   font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--td-text-color-placeholder);
+  color: var(--cph-text-3);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 .ver-chip:hover {
-  color: var(--td-text-color-primary);
-  background: var(--td-bg-color-secondarycontainer);
+  color: var(--cph-text-1);
+  background: var(--cph-surface-2);
 }
 .ver-chip.checking {
   cursor: progress;
 }
 .ver-chip.has-update {
   color: var(--td-warning-color);
+  border-color: var(--td-warning-color-3);
   background: var(--td-warning-color-1);
-  cursor: pointer;
-}
-.ver-chip.has-update:hover {
-  background: var(--td-warning-color-2);
 }
 .ver-dot {
   width: 6px;
@@ -353,6 +445,7 @@ function logout() {
   border-radius: 50%;
   background: var(--td-warning-color);
 }
+
 /* 语言菜单 */
 .lang-menu {
   min-width: 140px;
@@ -364,43 +457,43 @@ function logout() {
   gap: 8px;
   padding: 8px 12px;
   font-size: 13px;
-  color: var(--td-text-color-primary);
+  color: var(--cph-text-1);
   cursor: pointer;
   white-space: nowrap;
   border-radius: 6px;
   transition: background-color 0.15s ease;
 }
 .lang-menu-item:hover {
-  background: var(--td-bg-color-secondarycontainer);
+  background: var(--cph-surface-2);
 }
 .lang-menu-item.active {
   color: var(--td-brand-color);
 }
-/* 用户胶囊：头像 + 用户名 */
+
+/* 用户胶囊 */
 .user-chip {
   display: flex;
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 4px 10px;
   border-radius: 18px;
   transition: background-color 0.15s ease;
 }
 .user-chip:hover {
-  background: var(--td-bg-color-secondarycontainer);
+  background: var(--cph-surface-2);
 }
 .user-avatar {
   color: var(--td-brand-color);
 }
 .user-name {
   font-size: 13px;
-  color: var(--td-text-color-primary);
+  color: var(--cph-text-1);
   max-width: 120px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* 下拉功能块 */
 .user-menu {
   min-width: 180px;
 }
@@ -409,7 +502,7 @@ function logout() {
   align-items: center;
   gap: 10px;
   padding: 8px 12px 12px;
-  border-bottom: 1px solid var(--td-component-border);
+  border-bottom: 1px solid var(--cph-border);
   margin-bottom: 4px;
 }
 .user-menu-head .t-avatar {
@@ -421,7 +514,7 @@ function logout() {
 }
 .user-menu-sub {
   font-size: 12px;
-  color: var(--td-text-color-placeholder);
+  color: var(--cph-text-3);
 }
 .user-menu-item {
   display: flex;
@@ -430,25 +523,20 @@ function logout() {
   padding: 8px 12px;
   border-radius: 6px;
   font-size: 13px;
-  color: var(--td-text-color-primary);
+  color: var(--cph-text-1);
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 .user-menu-item:hover {
-  background: var(--td-bg-color-secondarycontainer);
-}
-.user-menu-item.disabled {
-  color: var(--td-text-color-disabled);
-  cursor: not-allowed;
-}
-.user-menu-item.disabled:hover {
-  background: none;
+  background: var(--cph-surface-2);
 }
 
-/* 内容区域：占满剩余高度，内部滚动（头部/侧栏固定） */
+/* 内容区：双向滚动（横向溢出不再被侧栏/视口裁掉） */
 .content {
   flex: 1;
-  overflow-y: auto;
+  min-width: 0;
+  min-height: 0;
   height: 0;
+  overflow: auto;
 }
 </style>

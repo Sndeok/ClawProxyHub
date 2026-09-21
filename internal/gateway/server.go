@@ -588,6 +588,7 @@ type requestLogCtx struct {
 	input          int64
 	output         int64
 	cached         int64
+	credit         float64 // 本次请求消耗积分（插件上报，0 = 未知）
 	status         int
 	firstTokenMs   int32
 	clientIP       string
@@ -615,7 +616,7 @@ func (c *requestLogCtx) write(db *gorm.DB) {
 		Protocol: c.protocol, Stream: c.stream, Status: int32(c.status),
 		FinishReason: c.finishReason, Attempts: attempts, ErrorType: c.errorType,
 		InputTokens: int32(c.input), OutputTokens: int32(c.output),
-		CachedTokens: int32(c.cached), LatencyMs: int32(latency.Milliseconds()),
+		CachedTokens: int32(c.cached), CreditUsed: c.credit, LatencyMs: int32(latency.Milliseconds()),
 		FirstTokenMs: c.firstTokenMs, ClientIP: c.clientIP, UserAgent: c.userAgent,
 		ErrorBrief: c.errBrief,
 	}

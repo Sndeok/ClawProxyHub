@@ -2,52 +2,68 @@
   <div class="page">
     <div class="page-header">
       
-      <t-button theme="primary" @click="openCreate">{{ $t('tasks.create') }}</t-button>
+      <div class="header-actions">
+        <t-popconfirm
+          :content="$t('tasks.runAllConfirm', { n: rules.length })"
+          :disabled="!rules.length"
+          @confirm="runAll"
+        >
+          <t-button variant="outline" :loading="runningAll" :disabled="!rules.length">
+            <template #icon><play-circle-icon /></template>
+            {{ $t('tasks.runAll') }}
+          </t-button>
+        </t-popconfirm>
+        <t-button theme="primary" @click="openCreate">{{ $t('tasks.create') }}</t-button>
+      </div>
     </div>
 
     <t-tabs v-model="tab">
       <t-tab-panel value="rules" :label="$t('tasks.tabRules')">
-        <t-table row-key="id" :data="rules" :columns="ruleColumns">
-          <template #trigger="{ row }">
-            <t-tag variant="light">{{ dict(triggerDict, row.trigger_type) }}</t-tag>
-          </template>
-          <template #accounts="{ row }">
-            <t-tag v-for="a in row.accounts || ['-']" :key="a" size="small" variant="light" style="margin-right: 4px">
-              {{ a }}
-            </t-tag>
-          </template>
-          <template #enabled="{ row }">
-            <t-switch :value="row.enabled" @change="(v: boolean) => toggle(row, v)" />
-          </template>
-          <template #op="{ row }">
-            <t-space size="small">
-              <t-link theme="primary" @click="run(row)">{{ $t('tasks.run') }}</t-link>
-              <t-popconfirm :content="$t('tasks.confirmDelete')" @confirm="removeRule(row.id)">
-                <t-link theme="danger">{{ $t('common.delete') }}</t-link>
-              </t-popconfirm>
-            </t-space>
-          </template>
-        </t-table>
+        <div class="table-wrap">
+          <t-table row-key="id" :data="rules" :columns="ruleColumns" table-layout="auto">
+            <template #trigger="{ row }">
+              <t-tag variant="light">{{ dict(triggerDict, row.trigger_type) }}</t-tag>
+            </template>
+            <template #accounts="{ row }">
+              <t-tag v-for="a in row.accounts || ['-']" :key="a" size="small" variant="light" style="margin-right: 4px">
+                {{ a }}
+              </t-tag>
+            </template>
+            <template #enabled="{ row }">
+              <t-switch :value="row.enabled" @change="(v: boolean) => toggle(row, v)" />
+            </template>
+            <template #op="{ row }">
+              <t-space size="small">
+                <t-link theme="primary" @click="run(row)">{{ $t('tasks.run') }}</t-link>
+                <t-popconfirm :content="$t('tasks.confirmDelete')" @confirm="removeRule(row.id)">
+                  <t-link theme="danger">{{ $t('common.delete') }}</t-link>
+                </t-popconfirm>
+              </t-space>
+            </template>
+          </t-table>
+        </div>
       </t-tab-panel>
       <t-tab-panel value="runs" :label="$t('tasks.tabRuns')">
-        <t-table row-key="id" :data="runs" :columns="runColumns">
-          <template #status="{ row }">
-            <!-- 错误信息并入状态 tooltip -->
-            <t-tooltip
-              v-if="row.status === 'failed' && row.error_message"
-              :content="row.error_message"
-              placement="top-left"
-              :overlay-style="{ maxWidth: '640px', whiteSpace: 'pre-wrap' }"
-            >
-              <t-tag :theme="row.status === 'success' ? 'success' : row.status === 'failed' ? 'danger' : 'warning'" variant="light">
+        <div class="table-wrap">
+          <t-table row-key="id" :data="runs" :columns="runColumns" table-layout="auto">
+            <template #status="{ row }">
+              <!-- 错误信息并入状态 tooltip -->
+              <t-tooltip
+                v-if="row.status === 'failed' && row.error_message"
+                :content="row.error_message"
+                placement="top-left"
+                :overlay-style="{ maxWidth: '640px', whiteSpace: 'pre-wrap' }"
+              >
+                <t-tag :theme="runStatusTheme(row.status)" variant="light">
+                  {{ dict(runStatusDict, row.status) }}
+                </t-tag>
+              </t-tooltip>
+              <t-tag v-else :theme="runStatusTheme(row.status)" variant="light">
                 {{ dict(runStatusDict, row.status) }}
               </t-tag>
-            </t-tooltip>
-            <t-tag v-else :theme="row.status === 'success' ? 'success' : row.status === 'failed' ? 'danger' : 'warning'" variant="light">
-              {{ dict(runStatusDict, row.status) }}
-            </t-tag>
-          </template>
-        </t-table>
+            </template>
+          </t-table>
+        </div>
       </t-tab-panel>
     </t-tabs>
 
@@ -106,6 +122,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
+import { PlayCircleIcon } from 'tdesign-icons-vue-next'
 import { api } from '../api/client'
 import { dict, runStatusDict, triggerDict } from '../utils/dict'
 import type { TaskRule, TaskRun } from '../api/types'
@@ -122,6 +139,7 @@ const accounts = ref<{ id: number; display_name: string }[]>([])
 const acctsLoading = ref(false)
 const createVisible = ref(false)
 const creating = ref(false)
+const runningAll = ref(false)
 const form = reactive({
   plugin_id: undefined, capability_id: '', trigger_type: 'interval',
   trigger_value: '1h', target_scope: 'all', target_account: undefined,
@@ -170,6 +188,13 @@ const ruleColumns = computed(() => [
 ])
 
 // 插件品牌名映射（新建规则弹窗用）
+// 运行状态 → 标签主题（success / failed / 其它=进行中）
+function runStatusTheme(status: string): 'success' | 'danger' | 'warning' {
+  if (status === 'success') return 'success'
+  if (status === 'failed') return 'danger'
+  return 'warning'
+}
+
 function pluginLabel(pluginID: number): string {
   const p = plugins.value.find((x) => x.id === pluginID)
   return p?.label || p?.name || `#${pluginID}`
@@ -273,6 +298,20 @@ async function run(rule: TaskRule) {
   setTimeout(load, 2000)
 }
 
+// 全部执行：服务端后台串行跑完当前规则列表（签到类逐个账号，HTTP 不等待）
+async function runAll() {
+  runningAll.value = true
+  try {
+    const r = await api.post<{ triggered: number }>('/admin/task-rules/run-all')
+    MessagePlugin.success(t('tasks.runAllDone', { n: r.triggered }))
+    setTimeout(load, 2000)
+  } catch (e: any) {
+    MessagePlugin.error(e.message)
+  } finally {
+    runningAll.value = false
+  }
+}
+
 async function removeRule(id: number) {
   await api.del(`/admin/task-rules/${id}`)
   await load()
@@ -282,6 +321,18 @@ onMounted(load)
 </script>
 
 <style scoped>
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.table-wrap {
+  background: var(--cph-surface);
+  border: 1px solid var(--cph-border);
+  border-radius: var(--cph-radius-lg);
+  overflow: hidden;
+  margin-top: 4px;
+}
 .trigger-box {
   width: 100%;
 }

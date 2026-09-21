@@ -142,6 +142,7 @@ func collectUsage(log *requestLogCtx, ev *pb.StreamEvent) {
 		log.finishReason = fin.MessageFinish.FinishReason
 		if u := fin.MessageFinish.Usage; u != nil {
 			log.input, log.output, log.cached = u.InputTokens, u.OutputTokens, u.CachedTokens
+			log.credit = u.CreditUsed
 		}
 	}
 }

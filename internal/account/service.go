@@ -114,6 +114,8 @@ func (s *Service) create(pluginName string, blob []byte, profile *pb.AccountProf
 	if err := s.db.Create(acct).Error; err != nil {
 		return nil, err
 	}
+	// 建档即记一次积分基线：当天剩余积分的起点，用于推算「今日消耗」
+	RecordCreditSnapshot(s.db, acct.ID, creditsJSON)
 	return acct, nil
 }
 
@@ -166,6 +168,8 @@ func (s *Service) Refresh(ctx context.Context, accountID int64) (*model.Account,
 	updates["status"] = "active" // 刷新成功即恢复
 	s.db.Model(&acct).Updates(updates)
 	s.db.First(&acct, accountID)
+	// 每次刷新都采一次积分：当天基线 - 当前剩余 = 今日消耗（充值会同步抬高基线）
+	RecordCreditSnapshot(s.db, acct.ID, acct.CreditsJSON)
 	return &acct, nil
 }
 

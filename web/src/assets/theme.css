@@ -1,18 +1,23 @@
-/* 明暗双主题变量（核心色自定义，结构沿用 TDesign 变量约定） */
+/* ------------------------------------------------------------------
+   ClawProxyHub 设计系统（明暗双主题）
+   - 色板：品牌蓝为主，中性色偏冷灰，暗色为深蓝黑
+   - 组件：统一圆角 / 描边 / 阴影 / 间距刻度，避免各页各写一套
+   - 布局：侧栏 + 顶栏固定，内容区双向滚动（横向溢出不再被裁切）
+-------------------------------------------------------------------*/
 :root,
 :root[theme-mode='light'] {
-  --cph-brand-1: #e8f0ff;
-  --cph-brand-2: #b8ccff;
-  --cph-brand-3: #7fa7ff;
-  --cph-brand-4: #4c7dff;
-  --cph-brand-5: #3563e8;
-  --cph-brand-6: #2a4fc4;
-  --cph-brand-7: #1f3d9c;
-  --cph-brand-8: #162d75;
-  --cph-brand-9: #0f1f52;
-  --cph-brand-10: #0a1440;
+  --cph-brand-1: #eaf1ff;
+  --cph-brand-2: #c9dcff;
+  --cph-brand-3: #9dbdff;
+  --cph-brand-4: #6b97ff;
+  --cph-brand-5: #3d72f5;
+  --cph-brand-6: #2a56d6;
+  --cph-brand-7: #1e42ab;
+  --cph-brand-8: #163380;
+  --cph-brand-9: #102556;
+  --cph-brand-10: #0a1938;
 
-  --td-brand-color: var(--cph-brand-4);
+  --td-brand-color: var(--cph-brand-5);
   --td-brand-color-1: var(--cph-brand-1);
   --td-brand-color-2: var(--cph-brand-2);
   --td-brand-color-3: var(--cph-brand-3);
@@ -23,36 +28,71 @@
   --td-brand-color-8: var(--cph-brand-8);
   --td-brand-color-9: var(--cph-brand-9);
   --td-brand-color-10: var(--cph-brand-10);
-  --td-brand-color-hover: var(--cph-brand-5);
+  --td-brand-color-hover: var(--cph-brand-4);
   --td-brand-color-active: var(--cph-brand-6);
   --td-brand-color-focus: var(--cph-brand-2);
   --td-brand-color-light: var(--cph-brand-1);
   --td-brand-color-disabled: var(--cph-brand-3);
 
-  /* 页面背景基调（明色淡蓝灰） */
-  --cph-bg-tint: #f2f6ff;
+  /* 语义色：偏柔和，避免刺眼 */
+  --cph-success: #12a15c;
+  --cph-warning: #d98207;
+  --cph-danger: #e34d59;
+  --cph-info: #3d72f5;
+
+  /* 页面与容器底色 */
+  --cph-bg-page: #f5f7fb;
+  --cph-bg-tint: #eef3ff;
+  --cph-bg-aside: #ffffff;
+  --cph-surface: #ffffff;
+  --cph-surface-2: #f7f9fd;
+  --cph-border: #e5e9f2;
+  --cph-border-strong: #d6dbe8;
+  --cph-text-1: #1c2333;
+  --cph-text-2: #5a6478;
+  --cph-text-3: #8b94a8;
+  --cph-shadow-card: 0 1px 2px rgba(21, 33, 71, 0.04), 0 6px 20px rgba(21, 33, 71, 0.05);
+  --cph-shadow-pop: 0 8px 28px rgba(21, 33, 71, 0.12);
+  --cph-radius-sm: 8px;
+  --cph-radius: 12px;
+  --cph-radius-lg: 16px;
 }
 
 :root[theme-mode='dark'] {
-  --td-brand-color: var(--cph-brand-5);
-  --td-brand-color-1: #1a2440;
-  --td-brand-color-2: #22305c;
-  --td-brand-color-3: #2a3d7a;
-  --td-brand-color-4: #3563e8;
-  --td-brand-color-5: #4c7dff;
-  --td-brand-color-6: #7fa7ff;
-  --td-brand-color-7: #b8ccff;
-  --td-brand-color-8: #d6e2ff;
-  --td-brand-color-9: #eaf1ff;
-  --td-brand-color-10: #f5f8ff;
-  --td-brand-color-hover: var(--cph-brand-4);
-  --td-brand-color-active: var(--cph-brand-6);
+  --td-brand-color: var(--cph-brand-4);
+  --td-brand-color-1: #16234a;
+  --td-brand-color-2: #1d2f66;
+  --td-brand-color-3: #274088;
+  --td-brand-color-4: #3d72f5;
+  --td-brand-color-5: #6b97ff;
+  --td-brand-color-6: #9dbdff;
+  --td-brand-color-7: #c9dcff;
+  --td-brand-color-8: #dde8ff;
+  --td-brand-color-9: #eef4ff;
+  --td-brand-color-10: #f7faff;
+  --td-brand-color-hover: var(--cph-brand-5);
+  --td-brand-color-active: var(--cph-brand-3);
   --td-brand-color-focus: var(--cph-brand-3);
-  --td-brand-color-light: var(--cph-brand-1);
+  --td-brand-color-light: var(--td-brand-color-1);
   --td-brand-color-disabled: var(--cph-brand-3);
 
-  /* 页面背景基调（暗色深蓝黑） */
-  --cph-bg-tint: #141a2e;
+  --cph-success: #2fbf7b;
+  --cph-warning: #e0a336;
+  --cph-danger: #f06a76;
+  --cph-info: #6b97ff;
+
+  --cph-bg-page: #0d1220;
+  --cph-bg-tint: #101a33;
+  --cph-bg-aside: #121a2c;
+  --cph-surface: #151d31;
+  --cph-surface-2: #1a2338;
+  --cph-border: #253048;
+  --cph-border-strong: #33405c;
+  --cph-text-1: #e8edf9;
+  --cph-text-2: #a3aec7;
+  --cph-text-3: #75809a;
+  --cph-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.28);
+  --cph-shadow-pop: 0 10px 32px rgba(0, 0, 0, 0.5);
 }
 
 html,
@@ -62,62 +102,149 @@ body,
   margin: 0;
 }
 
-/* 全局隐藏滚动条（滚动照常，仅不显示滚动条） */
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  color: var(--cph-text-1);
+  background: var(--cph-bg-page);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 细滚动条：既能看出可滚动区域，又不抢视觉 */
 * {
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE/旧 Edge */
+  scrollbar-width: thin;
+  scrollbar-color: var(--cph-border-strong) transparent;
 }
 *::-webkit-scrollbar {
-  display: none; /* WebKit */
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--cph-border-strong);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
 
+/* tabular 数字：日志/统计列对齐 */
+.t-num,
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* ---------- 页面骨架 ---------- */
 .page {
-  padding: 24px 28px 32px;
+  padding: 20px 24px 40px;
+  max-width: 100%;
+  box-sizing: border-box;
 }
-
 .page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
 }
-
 .page-title {
-  font-size: 22px;
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 650;
   letter-spacing: 0.2px;
 }
-
-/* 页面背景：明色淡蓝灰 / 暗色深蓝黑，与品牌色呼应 */
-.t-layout__content {
-  background: linear-gradient(180deg, var(--cph-bg-tint), var(--td-bg-color-page) 240px);
+.page-sub {
+  font-size: 12px;
+  color: var(--cph-text-3);
+  margin-top: 2px;
 }
 
-/* 卡片统一质感：圆角 + 悬浮上浮 */
+/* ---------- 布局：横向溢出交给内容区滚动，不再裁切 ---------- */
+.t-layout {
+  min-width: 0;
+}
+.t-layout__content {
+  min-width: 0;
+  background: linear-gradient(180deg, var(--cph-bg-tint), var(--cph-bg-page) 220px);
+}
+
+/* ---------- 卡片 ---------- */
 .t-card {
-  border-radius: 12px;
-  transition: box-shadow 0.25s ease, transform 0.25s ease;
+  border-radius: var(--cph-radius-lg);
+  border: 1px solid var(--cph-border);
+  background: var(--cph-surface);
+  box-shadow: var(--cph-shadow-card);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 .t-card:hover {
-  box-shadow: var(--td-shadow-1);
+  border-color: var(--cph-border-strong);
 }
-.t-card .t-card__header {
+.t-card__header {
   font-weight: 600;
 }
 
-/* 顶栏：毛玻璃 + 底部细分割线 */
+/* ---------- 表格：表头吸顶 + 行更紧凑 ---------- */
+.t-table {
+  background: transparent;
+}
+.t-table thead th {
+  background: var(--cph-surface-2);
+  font-weight: 600;
+  color: var(--cph-text-2);
+  white-space: nowrap;
+}
+.t-table tbody tr:hover {
+  background: var(--cph-surface-2);
+}
+.t-table th,
+.t-table td {
+  border-color: var(--cph-border) !important;
+}
+/* 表格统一包一层横向滚动容器（各页复用的 .table-wrap） */
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: var(--cph-radius);
+}
+.table-wrap .t-table__content {
+  min-width: max-content;
+}
+
+/* ---------- 顶栏 ---------- */
 .t-layout__header {
-  backdrop-filter: blur(8px);
-  background: color-mix(in srgb, var(--td-bg-color-container) 80%, transparent);
-  border-bottom: 1px solid var(--td-component-border);
+  backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--cph-surface) 82%, transparent);
+  border-bottom: 1px solid var(--cph-border);
 }
 
-/* 菜单图标：选中态发散光晕 */
+/* ---------- 菜单：选中态左侧指示条 ---------- */
+.t-menu {
+  background: transparent;
+}
+.t-menu__item {
+  border-radius: var(--cph-radius-sm);
+  transition: background-color 0.16s ease, color 0.16s ease;
+}
+.t-menu__item.t-is-active {
+  background: var(--td-brand-color-light);
+  color: var(--td-brand-color);
+  font-weight: 600;
+}
 .t-menu__item.t-is-active .t-icon {
-  filter: drop-shadow(0 0 6px var(--td-brand-color-3));
+  color: var(--td-brand-color);
 }
 
-/* 提示条缩小字号，避免喧宾夺主 */
+/* ---------- 杂项 ---------- */
 .t-alert .t-alert__message {
   font-size: 12px;
+}
+.muted {
+  color: var(--cph-text-3);
+  font-size: 12px;
+}
+.dim {
+  color: var(--cph-text-3);
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, Consolas, monospace;
 }

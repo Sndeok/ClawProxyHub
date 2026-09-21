@@ -33,6 +33,15 @@
         <span class="muted">
           {{ $t('logs.totalCount', { n: total }) }}<template v-if="rangeLabel"> · {{ rangeLabel }}</template>
         </span>
+        <span v-if="logs.length" class="page-sum">
+          <span class="num">Σ {{ fmt(pageSummary.tokens) }}</span>
+          <span class="sep">·</span>
+          <span>{{ $t('logs.hitRate') }} <b class="num">{{ pageSummary.hitRate }}</b></span>
+          <template v-if="pageSummary.credits > 0">
+            <span class="sep">·</span>
+            <span>{{ $t('logs.credits') }} <b class="num">{{ fmtCredit(pageSummary.credits) }}</b></span>
+          </template>
+        </span>
         <label class="auto-refresh">
           <t-switch v-model="autoRefresh" size="small" />
           <span>{{ $t('logs.autoRefresh') }}</span>
@@ -44,83 +53,132 @@
       </div>
     </div>
 
-    <t-table
-      row-key="ID"
-      :data="logs"
-      :columns="columns"
-      :loading="loading"
-      hover
-      @row-click="onRowClick"
-    >
-      <template #key="{ row }">
-        <span v-if="row.key_name">{{ row.key_name }}</span>
-        <span v-else class="dim">-</span>
-      </template>
-      <template #status="{ row }">
-        <!-- 错误信息并入状态 tooltip -->
-        <t-tooltip
-          v-if="row.Status >= 400 && row.ErrorBrief"
-          :content="`${row.Status} · ${row.ErrorBrief}`"
-          placement="top-left"
-          :overlay-style="{ maxWidth: '640px', whiteSpace: 'pre-wrap' }"
+    <div class="table-wrap">
+      <t-table
+          row-key="ID"
+          :data="logs"
+          :columns="columns"
+          :loading="loading"
+          table-layout="auto"
+          hover
+          @row-click="onRowClick"
         >
-          <t-tag :theme="row.Status < 400 ? 'success' : 'danger'" variant="light">{{ row.Status }}</t-tag>
-        </t-tooltip>
-        <t-tag v-else :theme="row.Status < 400 ? 'success' : 'danger'" variant="light">{{ row.Status }}</t-tag>
-      </template>
-      <template #tokens="{ row }">
-        <!-- Token 明细合并：输入/输出/缓存 tooltip + 总数 -->
-        <t-tooltip placement="top-left" :overlay-style="{ minWidth: '220px' }">
-          <span class="tokens">
-            <span class="tok-in">↓ {{ fmt(row.InputTokens) }}</span>
-            <span class="tok-out">↑ {{ fmt(row.OutputTokens) }}</span>
-            <span v-if="row.CachedTokens" class="tok-cache">✎ {{ fmt(row.CachedTokens) }}</span>
-          </span>
-          <template #content>
-            <div class="tok-detail">
-              <div class="tok-detail-title">{{ $t('logs.tokenDetail') }}</div>
-              <div class="tok-detail-row"><span>{{ $t('logs.inputTokens') }}</span><b>{{ fmt(row.InputTokens) }}</b></div>
-              <div class="tok-detail-row"><span>{{ $t('logs.outputTokens') }}</span><b>{{ fmt(row.OutputTokens) }}</b></div>
-              <div class="tok-detail-row" v-if="row.CachedTokens">
-                <span>{{ $t('logs.cached') }}</span><b>{{ fmt(row.CachedTokens) }}</b>
+          <template #model="{ row }">
+          <t-tooltip
+            placement="top-left"
+            :content="`${$t('logs.requestedModel')}: ${row.RequestedModel || '-'}` + (modelChanged(row) ? ` / ${$t('logs.upstreamModel')}: ${row.Model || '-'}` : '')"
+          >
+            <span class="model-cell">
+              <span class="model-alias">{{ row.RequestedModel || row.Model || '-' }}</span>
+              <template v-if="modelChanged(row)">
+                <span class="model-arrow">→</span>
+                <span class="model-real">{{ row.Model }}</span>
+              </template>
+            </span>
+          </t-tooltip>
+        </template>
+        <template #protocol="{ row }">
+          <t-tooltip :content="`${dict(protocolDict, row.Protocol)} · ${row.Stream ? $t('logs.streaming') : $t('logs.nonStreaming')}`" placement="top">
+            <div class="proto-cell">
+              <span class="proto-dot" :class="{ live: row.Stream }" />
+              <span class="proto-name">{{ shortProtocol(row.Protocol) }}</span>
+            </div>
+          </t-tooltip>
+        </template>
+        <template #key="{ row }">
+          <span v-if="row.key_name">{{ row.key_name }}</span>
+          <span v-else class="dim">-</span>
+        </template>
+          <template #status="{ row }">
+          <!-- 错误信息并入状态 tooltip -->
+          <t-tooltip
+            v-if="row.Status >= 400 && row.ErrorBrief"
+            :content="`${row.Status} · ${row.ErrorBrief}`"
+            placement="top-left"
+            :overlay-style="{ maxWidth: '640px', whiteSpace: 'pre-wrap' }"
+          >
+            <t-tag :theme="row.Status < 400 ? 'success' : 'danger'" variant="light">{{ row.Status }}</t-tag>
+          </t-tooltip>
+          <t-tag v-else :theme="row.Status < 400 ? 'success' : 'danger'" variant="light">{{ row.Status }}</t-tag>
+        </template>
+          <template #account="{ row }">
+            <span v-if="row.account_name" class="ellipsis acct" :title="row.account_name">
+              {{ row.account_name }}
+            </span>
+            <span v-else-if="row.AccountID" class="dim">#{{ row.AccountID }}</span>
+            <span v-else class="dim">-</span>
+          </template>
+          <template #credits="{ row }">
+            <t-tooltip v-if="row.CreditUsed" placement="top-left">
+              <span class="credit num">{{ fmtCredit(row.CreditUsed) }}</span>
+              <template #content>
+                <div class="tok-detail">
+                  <div class="tok-detail-title">{{ $t('logs.creditUsed') }}</div>
+                  <div class="tok-detail-row"><span>{{ $t('logs.credits') }}</span><b>{{ row.CreditUsed }}</b></div>
+                </div>
+              </template>
+            </t-tooltip>
+            <t-tooltip v-else :content="$t('logs.creditUnknown')" placement="top">
+              <span class="dim">-</span>
+            </t-tooltip>
+          </template>
+          <template #tokens="{ row }">
+          <!-- Token 明细合并：输入/输出/缓存 tooltip + 总数 -->
+          <t-tooltip placement="top-left" :overlay-style="{ minWidth: '220px' }">
+            <span class="tokens">
+              <span class="tok-in">↓ {{ fmt(row.InputTokens) }}</span>
+              <span class="tok-out">↑ {{ fmt(row.OutputTokens) }}</span>
+              <span v-if="row.CachedTokens" class="tok-cache">⚡ {{ fmt(row.CachedTokens) }}</span>
+            </span>
+            <template #content>
+              <div class="tok-detail">
+                <div class="tok-detail-title">{{ $t('logs.tokenDetail') }}</div>
+                <div class="tok-detail-row"><span>{{ $t('logs.inputTokens') }}</span><b>{{ fmt(row.InputTokens) }}</b></div>
+                <div class="tok-detail-row"><span>{{ $t('logs.outputTokens') }}</span><b>{{ fmt(row.OutputTokens) }}</b></div>
+                <div class="tok-detail-row" v-if="row.CachedTokens">
+                  <span>{{ $t('logs.cached') }}</span><b>{{ fmt(row.CachedTokens) }}</b>
+                </div>
+                <div class="tok-detail-row">
+                  <span>{{ $t('logs.hitRate') }}</span><b>{{ hitRate(row) }}</b>
+                </div>
+                <div class="tok-detail-total"><span>{{ $t('logs.totalTokens') }}</span><b>{{ fmt(totalTokens(row)) }}</b></div>
               </div>
-              <div class="tok-detail-total"><span>{{ $t('logs.totalTokens') }}</span><b>{{ fmt(totalTokens(row)) }}</b></div>
+            </template>
+          </t-tooltip>
+        </template>
+          <template #latency="{ row }">
+          <!-- 首字/总耗时合并：绿条 + tooltip -->
+          <t-tooltip placement="top-left">
+            <div class="latency">
+              <span class="latency-bar" :class="{ slow: row.LatencyMs >= 10000 }"></span>
+              <div class="latency-nums">
+                <div>{{ $t('logs.firstToken') }} <b>{{ fmtMs(row.FirstTokenMs) }}</b></div>
+                <div>{{ $t('logs.totalTime') }} <b>{{ fmtMs(row.LatencyMs) }}</b></div>
+              </div>
             </div>
-          </template>
-        </t-tooltip>
-      </template>
-      <template #latency="{ row }">
-        <!-- 首字/总耗时合并：绿条 + tooltip -->
-        <t-tooltip placement="top-left">
-          <div class="latency">
-            <span class="latency-bar" :class="{ slow: row.LatencyMs >= 10000 }"></span>
-            <div class="latency-nums">
-              <div>{{ $t('logs.firstToken') }} <b>{{ fmtMs(row.FirstTokenMs) }}</b></div>
-              <div>{{ $t('logs.totalTime') }} <b>{{ fmtMs(row.LatencyMs) }}</b></div>
-            </div>
-          </div>
-          <template #content>
-            <div class="tok-detail">
-              <div class="tok-detail-title">{{ $t('logs.latencyTitle') }}</div>
-              <div class="tok-detail-row"><span>{{ $t('logs.firstToken') }}</span><b>{{ fmtMs(row.FirstTokenMs) }}</b></div>
-              <div class="tok-detail-row"><span>{{ $t('logs.totalTime') }}</span><b>{{ fmtMs(row.LatencyMs) }}</b></div>
-            </div>
-          </template>
-        </t-tooltip>
-      </template>
-      <template #attempts="{ row }">
-        <span :class="row.Attempts > 1 ? 'attempts-retry' : 'dim'">{{ row.Attempts || 1 }}</span>
-      </template>
-      <template #ua="{ row }">
-        <t-tooltip v-if="row.UserAgent" :content="row.UserAgent" placement="top-left">
-          <span class="ellipsis">{{ row.UserAgent }}</span>
-        </t-tooltip>
-        <span v-else>-</span>
-      </template>
-      <template #empty>
-        <div class="empty">{{ $t('logs.empty') }}</div>
-      </template>
-    </t-table>
+            <template #content>
+              <div class="tok-detail">
+                <div class="tok-detail-title">{{ $t('logs.latencyTitle') }}</div>
+                <div class="tok-detail-row"><span>{{ $t('logs.firstToken') }}</span><b>{{ fmtMs(row.FirstTokenMs) }}</b></div>
+                <div class="tok-detail-row"><span>{{ $t('logs.totalTime') }}</span><b>{{ fmtMs(row.LatencyMs) }}</b></div>
+              </div>
+            </template>
+          </t-tooltip>
+        </template>
+          <template #attempts="{ row }">
+          <span :class="row.Attempts > 1 ? 'attempts-retry' : 'dim'">{{ row.Attempts || 1 }}</span>
+        </template>
+          <template #ua="{ row }">
+          <t-tooltip v-if="row.UserAgent" :content="row.UserAgent" placement="top-left">
+            <span class="ellipsis">{{ row.UserAgent }}</span>
+          </t-tooltip>
+          <span v-else>-</span>
+        </template>
+          <template #empty>
+          <div class="empty">{{ $t('logs.empty') }}</div>
+        </template>
+      </t-table>
+    </div>
 
     <div class="pager">
       <t-pagination
@@ -256,36 +314,25 @@ const cleanupOptions = computed(() => [
 // ---------- 表格列 ----------
 const columns = computed(() => [
   {
-    colKey: 'CreatedAt', title: t('common.colTime'), width: 165, align: 'center',
+    colKey: 'CreatedAt', title: t('common.colTime'), width: 146, align: 'center',
     cell: (_h: any, { row }: any) => fmtTime(row.CreatedAt),
   },
-  { colKey: 'status', title: t('common.colStatus'), width: 80, align: 'center' },
-  { colKey: 'key', title: t('logs.key'), width: 120, ellipsis: true },
+  { colKey: 'status', title: t('common.colStatus'), width: 72, align: 'center' },
+  { colKey: 'key', title: t('logs.key'), width: 100, ellipsis: true },
+  { colKey: 'account', title: t('logs.accountCol'), width: 110, ellipsis: true },
+  // 请求模型与上游模型合并：一致时只显示一次，路由改写时用 → 展示真实去向
+  { colKey: 'model', title: t('logs.model'), width: 170, ellipsis: true },
   {
-    colKey: 'RequestedModel', title: t('logs.requestedModel'), width: 150, ellipsis: true,
-    cell: (_h: any, { row }: any) => row.RequestedModel || row.Model || '-',
-  },
-  {
-    colKey: 'Model', title: t('logs.upstreamModel'), width: 150, ellipsis: true,
-    cell: (_h: any, { row }: any) => row.Model || '-',
-  },
-  {
-    colKey: 'plugin', title: t('logs.plugin'), width: 100, align: 'center',
+    colKey: 'plugin', title: t('logs.plugin'), width: 92, align: 'center',
     cell: (_h: any, { row }: any) => pluginLabel(row.PluginID),
   },
-  {
-    colKey: 'Protocol', title: t('logs.protocol'), width: 140, align: 'center',
-    cell: (_h: any, { row }: any) => dict(protocolDict, row.Protocol),
-  },
-  {
-    colKey: 'stream', title: t('logs.stream'), width: 80, align: 'center',
-    cell: (_h: any, { row }: any) => (row.Stream ? t('logs.streaming') : t('logs.nonStreaming')),
-  },
-  { colKey: 'tokens', title: 'Token', width: 170, align: 'center' },
-  { colKey: 'latency', title: t('logs.latency'), width: 130, align: 'center' },
-  { colKey: 'attempts', title: t('logs.attempts'), width: 80, align: 'center' },
-  { colKey: 'ClientIP', title: 'IP', width: 120, align: 'center' },
-  { colKey: 'ua', title: t('logs.client'), width: 130, align: 'center' },
+  // 协议 + 流式合并，省一列宽度；流式用浅色标签区分
+  { colKey: 'protocol', title: t('logs.protocol'), width: 118, align: 'center' },
+  { colKey: 'tokens', title: 'Token', width: 148, align: 'center' },
+  { colKey: 'credits', title: t('logs.credits'), width: 86, align: 'center' },
+  { colKey: 'latency', title: t('logs.latency'), width: 112, align: 'center' },
+  { colKey: 'attempts', title: t('logs.attempts'), width: 72, align: 'center' },
+  { colKey: 'ClientIP', title: 'IP', width: 104, align: 'center' },
 ])
 
 // ---------- 详情 ----------
@@ -310,6 +357,7 @@ const detailRows = computed<DetailRow[]>(() => {
     { label: t('logs.outputTokens'), value: String(d.OutputTokens || 0) },
     { label: t('logs.cached'), value: String(d.CachedTokens || 0) },
     { label: t('logs.totalTokens'), value: String(totalTokens(d)) },
+    { label: t('logs.creditUsed'), value: d.CreditUsed ? String(d.CreditUsed) : t('logs.creditUnknown') },
     { label: t('logs.firstToken'), value: fmtMs(d.FirstTokenMs) },
     { label: t('logs.totalTime'), value: fmtMs(d.LatencyMs) },
     { label: t('logs.attempts'), value: String(d.Attempts || 1), danger: (d.Attempts || 1) > 1 },
@@ -348,6 +396,20 @@ function fmtMs(ms: number): string {
   return `${(ms / 1000).toFixed(2)}s`
 }
 
+// 协议短名：列里只放能一眼区分的部分，完整名走 tooltip
+function shortProtocol(p: string): string {
+  if (p === 'chat_completions') return 'Chat'
+  if (p === 'responses') return 'Responses'
+  if (p === 'messages') return 'Messages'
+  return p || '-'
+}
+
+// 路由改写模型名时才需要展示「请求 → 上游」，否则重复展示没意义
+function modelChanged(row: RequestLog): boolean {
+  const req = row.RequestedModel || row.Model
+  return !!row.Model && !!req && row.Model !== req
+}
+
 function fmtTime(v: string): string {
   return v?.replace('T', ' ').slice(0, 19) ?? '-'
 }
@@ -355,6 +417,34 @@ function fmtTime(v: string): string {
 function totalTokens(row: RequestLog): number {
   return (row.InputTokens || 0) + (row.OutputTokens || 0) + (row.CachedTokens || 0)
 }
+
+function fmtCredit(n: number): string {
+  if (!n) return '0'
+  if (Number.isInteger(n)) return String(n)
+  return n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
+}
+
+// 缓存命中率基数用「输入 token」：cached 是输入的一部分，不含输出
+function hitRate(row: RequestLog): string {
+  const base = (row.InputTokens || 0) + (row.CachedTokens || 0)
+  if (!row.CachedTokens || base <= 0) return '0%'
+  return `${((row.CachedTokens / base) * 100).toFixed(1)}%`
+}
+
+// 本页汇总：让「这一屏大概花了多少」一眼可见，不用心算
+const pageSummary = computed(() => {
+  let tokens = 0, cached = 0, input = 0, credits = 0
+  for (const row of logs.value) {
+    tokens += (row.InputTokens || 0) + (row.OutputTokens || 0)
+    cached += row.CachedTokens || 0
+    input += (row.InputTokens || 0) + (row.CachedTokens || 0)
+    credits += row.CreditUsed || 0
+  }
+  return {
+    tokens, credits,
+    hitRate: input > 0 && cached > 0 ? `${((cached / input) * 100).toFixed(1)}%` : '0%',
+  }
+})
 
 // ---------- 查询 ----------
 function pad(n: number): string {
@@ -516,6 +606,79 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+.page-sum {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 14px;
+  background: var(--cph-surface-2);
+  border: 1px solid var(--cph-border);
+  font-size: 12px;
+  color: var(--cph-text-2);
+}
+.page-sum b {
+  color: var(--cph-text-1);
+}
+.page-sum .sep {
+  color: var(--cph-border-strong);
+}
+.model-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  cursor: default;
+}
+.model-alias {
+  font-weight: 600;
+  color: var(--cph-text-1);
+}
+.model-arrow {
+  color: var(--cph-text-3);
+}
+.model-real {
+  color: var(--cph-text-2);
+  font-size: 12px;
+}
+.proto-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  cursor: default;
+}
+/* 流式/非流式用一个小圆点左右区分，比整块标签省一半宽度 */
+.proto-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cph-border-strong);
+  flex-shrink: 0;
+}
+.proto-dot.live {
+  background: var(--cph-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cph-success) 18%, transparent);
+}
+.proto-name {
+  color: var(--cph-text-2);
+}
+.acct {
+  color: var(--cph-text-2);
+}
+.credit {
+  color: var(--cph-warning);
+  font-weight: 600;
+}
+.table-wrap {
+  background: var(--cph-surface);
+  border: 1px solid var(--cph-border);
+  border-radius: var(--cph-radius-lg);
+  overflow: hidden;
+}
+.table-wrap :deep(.t-table) {
+  border-radius: 0;
 }
 .auto-refresh {
   display: inline-flex;

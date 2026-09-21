@@ -2,10 +2,17 @@
   <div class="page">
     <div class="page-header">
       
-      <t-button theme="primary" :disabled="!plugins.length" @click="openAdd">{{ $t('accounts.add') }}</t-button>
+      <div class="header-actions">
+  <t-button variant="outline" :loading="refreshingAll" @click="refreshAll">
+    <template #icon><refresh-icon /></template>
+    {{ $t('accounts.refreshAll') }}
+  </t-button>
+  <t-button theme="primary" :disabled="!plugins.length" @click="openAdd">{{ $t('accounts.add') }}</t-button>
+</div>
     </div>
 
-    <t-table row-key="id" :data="accounts" :columns="columns" :loading="loading">
+    <div class="table-wrap">
+      <t-table row-key="id" :data="accounts" :columns="columns" :loading="loading" table-layout="auto">
       <template #display_name="{ row }">
         <span class="acct-name" @click="openDetail(row.id)">{{ row.display_name || `#${row.id}` }}</span>
       </template>
@@ -59,6 +66,38 @@
           {{ dict(accountStatusDict, row.status) }}
         </t-tag>
       </template>
+      <template #today_tokens="{ row }">
+        <t-tooltip v-if="row.today_tokens || row.today_cached" placement="top-left">
+          <span class="today num">{{ fmtCompact(row.today_tokens) }}</span>
+          <template #content>
+            <div class="tok-detail">
+              <div class="tok-detail-title">{{ $t('accounts.todayTokens') }}</div>
+              <div class="tok-detail-row"><span>Token</span><b>{{ row.today_tokens || 0 }}</b></div>
+              <div class="tok-detail-row"><span>{{ $t('logs.cached') }}</span><b>{{ row.today_cached || 0 }}</b></div>
+              <div class="tok-detail-row"><span>{{ $t('logs.totalCount', { n: row.today_requests || 0 }) }}</span><b></b></div>
+            </div>
+          </template>
+        </t-tooltip>
+        <span v-else class="dim">-</span>
+      </template>
+      <template #today_credits="{ row }">
+        <t-tooltip v-if="row.today_credits" placement="top-left">
+          <span class="today num">
+            {{ fmtCredit(row.today_credits) }}
+            <em v-if="row.today_credits_estimated" class="est">{{ $t('accounts.estimated') }}</em>
+          </span>
+          <template #content>
+            <div class="tok-detail">
+              <div class="tok-detail-title">{{ $t('accounts.todayCredits') }}</div>
+              <div class="tok-detail-row">
+                <span>{{ row.today_credits_estimated ? $t('accounts.estimated') : $t('accounts.todayCredits') }}</span>
+                <b>{{ row.today_credits }}</b>
+              </div>
+            </div>
+          </template>
+        </t-tooltip>
+        <span v-else class="dim">-</span>
+      </template>
       <template #credits="{ row }">
         <div v-if="row.credits" class="credit-cell">
           <span>{{ $t('accounts.remaining') }}: {{ fmtNum(row.credits.remaining) }}</span>
@@ -76,7 +115,8 @@
           </t-popconfirm>
         </t-space>
       </template>
-    </t-table>
+      </t-table>
+    </div>
 
     <!-- 账号详情：套餐/积分 + 任务执行情况 -->
     <t-drawer v-model:visible="detailVisible" :header="detailHeader" size="720px">
@@ -330,6 +370,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
+import { RefreshIcon } from 'tdesign-icons-vue-next'
 import { CheckIcon } from 'tdesign-icons-vue-next'
 import { api } from '../api/client'
 import BindSelect from '../components/BindSelect.vue'
@@ -343,6 +384,7 @@ const accounts = ref<Account[]>([])
 const groups = ref<GroupInfo[]>([])
 const proxies = ref<{ ID: number; Scheme: string; Host: string; Port: number }[]>([])
 const loading = ref(false)
+const refreshingAll = ref(false)
 
 // 编辑弹窗
 const editVisible = ref(false)
@@ -400,14 +442,16 @@ const submitLabel = computed(() => {
 })
 
 const columns = computed(() => [
-  { colKey: 'display_name', title: t('accounts.account'), width: 160, ellipsis: true },
-  { colKey: 'plugin', title: t('accounts.colPlugin'), width: 110, ellipsis: true, cell: (_h: any, { row }: any) => pluginLabel(row.plugin_id), align: 'center' },
-  { colKey: 'group', title: t('accounts.groups'), align: 'center' },
-  { colKey: 'credits', title: t('accounts.credits'), width: 120, align: 'center' },
-  { colKey: 'status', title: t('accounts.status'), width: 90, align: 'center' },
-  { colKey: 'schedule', title: t('accounts.schedule'), width: 110, align: 'center' },
-  { colKey: 'last_refresh_at', title: t('accounts.lastRefresh'), width: 120, cell: (_h: any, { row }: any) => row.last_refresh_at ? timeAgo(row.last_refresh_at) : '-', align: 'center' },
-  { colKey: 'op', title: t('common.colOp'), width: 200, align: 'center' },
+  { colKey: 'display_name', title: t('accounts.account'), width: 150, ellipsis: true },
+  { colKey: 'plugin', title: t('accounts.colPlugin'), width: 92, ellipsis: true, cell: (_h: any, { row }: any) => pluginLabel(row.plugin_id), align: 'center' },
+  { colKey: 'group', title: t('accounts.groups'), width: 268, align: 'center' },
+  { colKey: 'credits', title: t('accounts.credits'), width: 108, align: 'center' },
+  { colKey: 'today_tokens', title: t('accounts.todayTokens'), width: 108, align: 'center' },
+  { colKey: 'today_credits', title: t('accounts.todayCredits'), width: 102, align: 'center' },
+  { colKey: 'status', title: t('accounts.status'), width: 84, align: 'center' },
+  { colKey: 'schedule', title: t('accounts.schedule'), width: 86, align: 'center' },
+  { colKey: 'last_refresh_at', title: t('accounts.lastRefresh'), width: 106, cell: (_h: any, { row }: any) => row.last_refresh_at ? timeAgo(row.last_refresh_at) : '-', align: 'center' },
+  { colKey: 'op', title: t('common.colOp'), width: 186, align: 'center' },
 ])
 
 // 相对时间：如 5分钟前 / 1天前 / 3个月前
@@ -898,6 +942,41 @@ async function refresh(id: number) {
   }
 }
 
+// 一键刷新：服务端并发刷所有账号（含积分快照），返回逐条失败明细
+async function refreshAll() {
+  if (!accounts.value.length) return
+  refreshingAll.value = true
+  try {
+    const r = await api.post<{ total: number; refreshed: number; failed: number; items: { name: string; message: string }[] }>(
+      '/admin/accounts/refresh-all',
+    )
+    MessagePlugin.success(t('accounts.refreshAllDone', { ok: r.refreshed, total: r.total }))
+    if (r.failed > 0) {
+      const head = r.items.slice(0, 3).map((i) => `${i.name || '#'}: ${i.message}`).join('；')
+      MessagePlugin.warning(`${r.failed} 个账号刷新失败：${head}`)
+    }
+    await loadAll()
+  } catch (e: any) {
+    MessagePlugin.error(e.message)
+  } finally {
+    refreshingAll.value = false
+  }
+}
+
+// 今日用量列：大数压缩展示（12.3K / 1.2M）
+function fmtCompact(n?: number): string {
+  const v = n || 0
+  if (v < 1000) return String(v)
+  if (v < 1000000) return `${(v / 1000).toFixed(1).replace(/\.0$/, '')}K`
+  return `${(v / 1000000).toFixed(2)}M`
+}
+
+function fmtCredit(n?: number): string {
+  const v = n || 0
+  if (!v) return '0'
+  return Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/0+$/, '').replace(/\.$/, '')
+}
+
 async function remove(id: number) {
   await api.del(`/admin/accounts/${id}`)
   await loadAll()
@@ -908,6 +987,38 @@ onMounted(loadAll)
 </script>
 
 <style scoped>
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.today {
+  color: var(--cph-text-1);
+  font-weight: 600;
+}
+.today .est {
+  margin-left: 4px;
+  font-style: normal;
+  font-size: 10px;
+  color: var(--cph-text-3);
+  border: 1px solid var(--cph-border-strong);
+  border-radius: 6px;
+  padding: 0 4px;
+}
+.table-wrap {
+  background: var(--cph-surface);
+  border: 1px solid var(--cph-border);
+  border-radius: var(--cph-radius-lg);
+  overflow: hidden;
+}
+.tok-detail { min-width: 200px }
+.tok-detail-title { font-weight: 700; margin-bottom: 8px }
+.tok-detail-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 2px 0;
+}
 /* 账号名称：点击开详情，移入高亮 */
 .acct-name {
   cursor: pointer;

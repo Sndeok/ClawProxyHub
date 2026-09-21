@@ -133,3 +133,58 @@ func TestChatBodyUsesMultimodalContentJSON(t *testing.T) {
 		t.Fatalf("second part is not image_url: %#v", content[1])
 	}
 }
+
+// TestParserCachedAndCreditUsage 回归：缓存命中字段（各家命名不一）与积分消耗必须落到 usage。
+func TestParserCachedAndCreditUsage(t *testing.T) {
+	cases := []struct {
+		name       string
+		line       string
+		wantCached int64
+		wantCredit float64
+	}{
+		{
+			name:       "anthropic 风格 input_tokens_details",
+			line:       `data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":5,"input_tokens_details":{"cached_tokens":80}}}`,
+			wantCached: 80,
+		},
+		{
+			name:       "顶层 cached_tokens + credits_used",
+			line:       `data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":5,"cached_tokens":60,"credits_used":1.25}}`,
+			wantCached: 60, wantCredit: 1.25,
+		},
+		{
+			name:       "prompt_tokens_details 缓存写入",
+			line:       `data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":100,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":30,"cache_read_input_tokens":20}}}`,
+			wantCached: 50,
+		},
+		{
+			name:       "无缓存字段时为 0",
+			line:       `data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":1}}`,
+			wantCached: 0, wantCredit: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			events := collect([]string{tc.line})
+			var fin *pb.StreamEvent_MessageFinish
+			for _, ev := range events {
+				if f, ok := ev.Event.(*pb.StreamEvent_MessageFinish); ok {
+					fin = f
+				}
+			}
+			if fin == nil {
+				t.Fatalf("no message_finish event: %+v", events)
+			}
+			u := fin.MessageFinish.Usage
+			if u == nil {
+				t.Fatal("usage 丢失")
+			}
+			if u.CachedTokens != tc.wantCached {
+				t.Errorf("cached = %d, want %d", u.CachedTokens, tc.wantCached)
+			}
+			if u.CreditUsed != tc.wantCredit {
+				t.Errorf("credit = %v, want %v", u.CreditUsed, tc.wantCredit)
+			}
+		})
+	}
+}

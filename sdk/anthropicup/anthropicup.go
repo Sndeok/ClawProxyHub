@@ -212,7 +212,9 @@ func (p *Parser) Feed(line string) {
 		Message struct {
 			Model string `json:"model"`
 			Usage struct {
-				InputTokens int64 `json:"input_tokens"`
+				InputTokens              int64 `json:"input_tokens"`
+				CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+				CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 			} `json:"usage"`
 		} `json:"message"`
 		ContentBlock struct {
@@ -229,7 +231,10 @@ func (p *Parser) Feed(line string) {
 			StopReason  string `json:"stop_reason"`
 		} `json:"delta"`
 		Usage struct {
-			OutputTokens int64 `json:"output_tokens"`
+			OutputTokens             int64 `json:"output_tokens"`
+			InputTokens              int64 `json:"input_tokens"`
+			CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+			CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal([]byte(payload), &ev); err != nil {
@@ -237,6 +242,12 @@ func (p *Parser) Feed(line string) {
 	}
 	switch ev.Type {
 	case "message_start":
+		// message_start 携带输入侧用量（含 prompt 缓存命中/写入），先在本地挂起，
+		// 等 message_delta / message_stop 拿到 output_tokens 后一起上报。
+		p.pendingUse = mergeUsage(p.pendingUse, &pb.Usage{
+			InputTokens:  ev.Message.Usage.InputTokens,
+			CachedTokens: ev.Message.Usage.CacheReadInputTokens,
+		})
 		p.emit(&pb.StreamEvent{Event: &pb.StreamEvent_MessageStart{
 			MessageStart: &pb.MessageStart{Model: ev.Message.Model},
 		}})
@@ -257,12 +268,18 @@ func (p *Parser) Feed(line string) {
 			}})
 		}
 	case "message_delta":
-		// stop_reason + output_tokens 通常都在这里
+		// stop_reason + output_tokens 通常都在这里；部分上游会在 message_delta 里再带一次
+		// 输入侧用量（Anthropic 官方在新版本里会补 input_tokens / cache_read_input_tokens）。
+		p.pendingUse = mergeUsage(p.pendingUse, &pb.Usage{
+			InputTokens:  ev.Usage.InputTokens,
+			CachedTokens: ev.Usage.CacheReadInputTokens,
+			OutputTokens: ev.Usage.OutputTokens,
+		})
 		if ev.Delta.StopReason != "" {
-			p.finish(mapStop(ev.Delta.StopReason), ev.Usage.OutputTokens)
+			p.finish(mapStop(ev.Delta.StopReason))
 		}
 	case "message_stop":
-		p.finish("stop", 0)
+		p.finish("stop")
 	}
 }
 
@@ -282,7 +299,7 @@ func (p *Parser) FinishWithError(code int32, message string) {
 	}})
 }
 
-func (p *Parser) finish(reason string, outputTokens int64) {
+func (p *Parser) finish(reason string) {
 	if p.sentFinish {
 		return
 	}
@@ -294,9 +311,29 @@ func (p *Parser) finish(reason string, outputTokens int64) {
 	p.emit(&pb.StreamEvent{Event: &pb.StreamEvent_MessageFinish{
 		MessageFinish: &pb.MessageFinish{
 			FinishReason: reason,
-			Usage:        &pb.Usage{OutputTokens: outputTokens},
+			Usage:        p.pendingUse,
 		},
 	}})
+}
+
+// mergeUsage 合并两次上游用量快照，取每个字段的较大值（上游分片上报，非累加语义）。
+func mergeUsage(dst, src *pb.Usage) *pb.Usage {
+	if dst == nil {
+		return src
+	}
+	if src == nil {
+		return dst
+	}
+	if src.InputTokens > dst.InputTokens {
+		dst.InputTokens = src.InputTokens
+	}
+	if src.OutputTokens > dst.OutputTokens {
+		dst.OutputTokens = src.OutputTokens
+	}
+	if src.CachedTokens > dst.CachedTokens {
+		dst.CachedTokens = src.CachedTokens
+	}
+	return dst
 }
 
 // ---------- 工具 ----------

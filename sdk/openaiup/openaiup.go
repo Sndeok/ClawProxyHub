@@ -87,6 +87,26 @@ func ChatBody(req *pb.ChatRequest) map[string]interface{} {
 	return body
 }
 
+// openAIUsage 覆盖 OpenAI Chat/Responses 常见的缓存 token 与积分字段。
+// 积分字段各家中转命名不统一，这里把常见写法都收进来，取第一个非零值。
+type openAIUsage struct {
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
+	CachedTokens     int64   `json:"cached_tokens"`
+	CreditsUsed      float64 `json:"credits_used"`
+	CreditUsed       float64 `json:"credit_used"`
+	Credits          float64 `json:"credits"`
+	CreditsConsumed  float64 `json:"credits_consumed"`
+	PromptDetails    *struct {
+		CachedTokens int64 `json:"cached_tokens"`
+		CacheRead    int64 `json:"cache_read_input_tokens"`
+	} `json:"prompt_tokens_details"`
+	InputDetails *struct {
+		CachedTokens int64 `json:"cached_tokens"`
+		CacheRead    int64 `json:"cache_read_input_tokens"`
+	} `json:"input_tokens_details"`
+}
+
 // Parser 把上游 OpenAI SSE 行解析为信封事件。
 // 用法：每读一行调 Feed；流结束时调 Finish 把挂起的 finish_reason 落地。
 type Parser struct {
@@ -127,10 +147,7 @@ func (p *Parser) Feed(line string) {
 			} `json:"delta"`
 			FinishReason *string `json:"finish_reason"`
 		} `json:"choices"`
-		Usage *struct {
-			PromptTokens     int64 `json:"prompt_tokens"`
-			CompletionTokens int64 `json:"completion_tokens"`
-		} `json:"usage"`
+		Usage *openAIUsage `json:"usage"`
 	}
 	if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
 		return
@@ -192,20 +209,37 @@ func (p *Parser) FinishWithError(code int32, message string) {
 	}})
 }
 
-func (p *Parser) finish(u *struct {
-	PromptTokens     int64 `json:"prompt_tokens"`
-	CompletionTokens int64 `json:"completion_tokens"`
-}) {
+func (p *Parser) finish(u *openAIUsage) {
 	if p.sentFinish {
 		return
 	}
 	p.sentFinish = true
+	cached := u.CachedTokens
+	if u.PromptDetails != nil {
+		cached += u.PromptDetails.CachedTokens + u.PromptDetails.CacheRead
+	}
+	if u.InputDetails != nil {
+		cached += u.InputDetails.CachedTokens + u.InputDetails.CacheRead
+	}
 	p.emit(&pb.StreamEvent{Event: &pb.StreamEvent_MessageFinish{
 		MessageFinish: &pb.MessageFinish{
 			FinishReason: orDefault(p.pendingStop, "stop"),
-			Usage:        &pb.Usage{InputTokens: u.PromptTokens, OutputTokens: u.CompletionTokens},
+			Usage: &pb.Usage{
+				InputTokens: u.PromptTokens, OutputTokens: u.CompletionTokens,
+				CachedTokens: cached, CreditUsed: creditOf(u),
+			},
 		},
 	}})
+}
+
+// creditOf 取上游 usage 里的积分消耗（各家中转命名不一，取第一个非零）。
+func creditOf(u *openAIUsage) float64 {
+	for _, v := range []float64{u.CreditsUsed, u.CreditUsed, u.Credits, u.CreditsConsumed} {
+		if v != 0 {
+			return v
+		}
+	}
+	return 0
 }
 
 // ---------- 工具 ----------

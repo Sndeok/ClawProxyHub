@@ -248,6 +248,9 @@ message Usage {
   int64 input_tokens = 1;
   int64 output_tokens = 2;
   int64 cached_tokens = 3; // 命中缓存的输入 token（上游有透出时上报）
+  // 本次请求消耗的积分（上游 usage 里透出了才上报，0 = 未知）。
+  // 旧插件不填该字段，proto3 默认 0，天然向后兼容。
+  double credit_used = 4;
 }
 
 message MessageFinish {

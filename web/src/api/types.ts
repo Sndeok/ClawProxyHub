@@ -52,6 +52,12 @@ export interface Account {
   paused_until: string | null
   last_refresh_at: string | null
   credits?: { remaining?: string; total?: string; free_limit?: string; free_used?: string } | null
+  // 今日用量（服务端按 request_logs 聚合；积分缺失插件上报时回落到积分快照差值并置 estimated）
+  today_tokens?: number
+  today_cached?: number
+  today_credits?: number
+  today_credits_estimated?: boolean
+  today_requests?: number
 }
 
 export interface AccountRun {
@@ -207,6 +213,7 @@ export interface RequestLog {
   InputTokens: number
   OutputTokens: number
   CachedTokens: number
+  CreditUsed: number
   FirstTokenMs: number
   LatencyMs: number
   ClientIP: string
