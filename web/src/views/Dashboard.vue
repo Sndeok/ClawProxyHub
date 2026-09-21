@@ -75,13 +75,12 @@
     <t-row :gutter="[16, 16]" class="block">
       <t-col :span="12">
         <t-card :header="$t('dashboard.recentTitle')" :bordered="false">
-          <div class="table-wrap">
+          <DataTable>
             <t-table row-key="ID" size="small" :data="recent" :columns="recentColumns" :loading="recentLoading">
               <template #status="{ row }">
                 <t-tag :theme="row.Status < 400 ? 'success' : 'danger'" variant="light">{{ row.Status }}</t-tag>
               </template>
-            </t-table>
-          </div>
+            </t-table></DataTable>
           <!-- 最近请求分页：共 N 条，可翻页（完整明细在「日志」页） -->
           <div class="recent-foot">
             <span class="muted">{{ $t('logs.totalCount', { n: recentTotal }) }}</span>
@@ -116,6 +115,7 @@ import {
   DashboardIcon, CheckCircleIcon, ChartBarIcon, UserIcon, AppIcon, LockOnIcon,
 } from 'tdesign-icons-vue-next'
 import { api } from '../api/client'
+import DataTable from '../components/DataTable.vue'
 import { dict, protocolDict } from '../utils/dict'
 import type { RequestLog, Stats } from '../api/types'
 

@@ -25,7 +25,7 @@
         <t-button theme="primary" @click="openCreate">{{ $t('routes.create') }}</t-button>
       </div>
     </div>
-    <div class="table-wrap">
+    <DataTable>
       <t-table row-key="ID" :data="routes" :columns="columns" table-layout="auto">
       <template #strategy="{ row }">
         <t-tag variant="light">{{ dict(strategyDict, row.Strategy) }}</t-tag>
@@ -54,8 +54,7 @@
           </t-popconfirm>
         </t-space>
       </template>
-      </t-table>
-    </div>
+      </t-table></DataTable>
 
     <t-dialog v-model:visible="dialogVisible" :header="editingID ? $t('routes.editTitle') : $t('routes.create')" width="760px" :confirm-btn="{ loading: saving }" @confirm="save">
       <t-form label-width="90px">
@@ -115,6 +114,7 @@ import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { RefreshIcon } from 'tdesign-icons-vue-next'
 import { api } from '../api/client'
+import DataTable from '../components/DataTable.vue'
 import BindSelect from '../components/BindSelect.vue'
 import { dict, strategyDict } from '../utils/dict'
 import type { GroupInfo, RouteGroupEntry, RouteInfo } from '../api/types'
@@ -317,12 +317,6 @@ onMounted(load)
   align-items: center;
   gap: 8px;
   margin-top: 12px;
-}
-.table-wrap {
-  background: var(--cph-surface);
-  border: 1px solid var(--cph-border);
-  border-radius: var(--cph-radius-lg);
-  overflow: hidden;
 }
 .entries { width: 100% }
 .entry { display: flex; gap: 8px; align-items: center; margin-bottom: 8px }

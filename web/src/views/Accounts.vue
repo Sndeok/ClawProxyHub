@@ -11,7 +11,7 @@
 </div>
     </div>
 
-    <div class="table-wrap">
+    <DataTable>
       <t-table row-key="id" :data="accounts" :columns="columns" :loading="loading" table-layout="auto">
       <template #display_name="{ row }">
         <span class="acct-name" @click="openDetail(row.id)">{{ row.display_name || `#${row.id}` }}</span>
@@ -131,8 +131,7 @@
           </t-popconfirm>
         </t-space>
       </template>
-      </t-table>
-    </div>
+      </t-table></DataTable>
 
     <!-- 账号详情：套餐/积分 + 任务执行情况 -->
     <t-drawer v-model:visible="detailVisible" :header="detailHeader" size="720px">
@@ -389,6 +388,7 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import { RefreshIcon } from 'tdesign-icons-vue-next'
 import { CheckIcon } from 'tdesign-icons-vue-next'
 import { api } from '../api/client'
+import DataTable from '../components/DataTable.vue'
 import BindSelect from '../components/BindSelect.vue'
 import { accountStatusDict, capabilityDict, dict, label, runStatusDict } from '../utils/dict'
 import type { Account, AccountDetail, AuthMethod, GroupInfo, LoginResp, ModelInfo, NextStep, PluginInfo } from '../api/types'
@@ -1037,12 +1037,6 @@ onMounted(loadAll)
   border: 1px solid var(--cph-border-strong);
   border-radius: 6px;
   padding: 0 4px;
-}
-.table-wrap {
-  background: var(--cph-surface);
-  border: 1px solid var(--cph-border);
-  border-radius: var(--cph-radius-lg);
-  overflow: hidden;
 }
 .tok-detail { min-width: 200px }
 .tok-detail-title { font-weight: 700; margin-bottom: 8px }

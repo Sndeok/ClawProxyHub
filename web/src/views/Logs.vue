@@ -50,7 +50,7 @@
       </div>
     </div>
 
-    <div class="table-wrap">
+    <data-table>
       <t-table
           row-key="ID"
           :data="logs"
@@ -87,16 +87,7 @@
           <span v-else class="dim">-</span>
         </template>
           <template #status="{ row }">
-          <!-- 错误信息并入状态 tooltip -->
-          <t-tooltip
-            v-if="row.Status >= 400 && row.ErrorBrief"
-            :content="`${row.Status} · ${row.ErrorBrief}`"
-            placement="top-left"
-            :overlay-style="{ maxWidth: '640px', whiteSpace: 'pre-wrap' }"
-          >
-            <t-tag :theme="row.Status < 400 ? 'success' : 'danger'" variant="light">{{ row.Status }}</t-tag>
-          </t-tooltip>
-          <t-tag v-else :theme="row.Status < 400 ? 'success' : 'danger'" variant="light">{{ row.Status }}</t-tag>
+          <status-tag :code="row.Status" :message="row.ErrorBrief" />
         </template>
           <template #account="{ row }">
             <span v-if="row.account_name" class="ellipsis acct" :title="row.account_name">
@@ -107,30 +98,9 @@
           </template>
 
           <template #tokens="{ row }">
-          <!-- Token 明细合并：输入/输出/缓存 tooltip + 总数 -->
-          <t-tooltip placement="top-left" :overlay-style="{ minWidth: '220px' }">
-            <span class="tokens">
-              <span class="tok-in">↓ {{ fmt(row.InputTokens) }}</span>
-              <span class="tok-out">↑ {{ fmt(row.OutputTokens) }}</span>
-              <span v-if="row.CachedTokens" class="tok-cache">⚡ {{ fmt(row.CachedTokens) }}</span>
-            </span>
-            <template #content>
-              <div class="tok-detail">
-                <div class="tok-detail-title">{{ $t('logs.tokenDetail') }}</div>
-                <div class="tok-detail-row"><span>{{ $t('logs.inputTokens') }}</span><b>{{ fmt(row.InputTokens) }}</b></div>
-                <div class="tok-detail-row"><span>{{ $t('logs.outputTokens') }}</span><b>{{ fmt(row.OutputTokens) }}</b></div>
-                <div class="tok-detail-row" v-if="row.CachedTokens">
-                  <span>{{ $t('logs.cached') }}</span><b>{{ fmt(row.CachedTokens) }}</b>
-                </div>
-                <div class="tok-detail-row">
-                  <span>{{ $t('logs.hitRate') }}</span><b>{{ hitRate(row) }}</b>
-                </div>
-                <div class="tok-detail-total"><span>{{ $t('logs.totalTokens') }}</span><b>{{ fmt(totalTokens(row)) }}</b></div>
-              </div>
-            </template>
-          </t-tooltip>
+          <token-cell :input="row.InputTokens" :output="row.OutputTokens" :cached="row.CachedTokens" />
         </template>
-          <template #latency="{ row }">
+        <template #latency="{ row }">
           <!-- 首字/总耗时合并：绿条 + tooltip -->
           <t-tooltip placement="top-left">
             <div class="latency">
@@ -162,7 +132,7 @@
           <div class="empty">{{ $t('logs.empty') }}</div>
         </template>
       </t-table>
-    </div>
+    </data-table>
 
     <div class="pager">
       <t-pagination
@@ -208,6 +178,9 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { api } from '../api/client'
+import DataTable from '../components/DataTable.vue'
+import StatusTag from '../components/StatusTag.vue'
+import TokenCell from '../components/TokenCell.vue'
 import { dict, protocolDict } from '../utils/dict'
 import type { LogPage, RequestLog } from '../api/types'
 
@@ -646,12 +619,6 @@ onBeforeUnmount(() => {
 }
 .acct {
   color: var(--cph-text-2);
-}
-.table-wrap {
-  background: var(--cph-surface);
-  border: 1px solid var(--cph-border);
-  border-radius: var(--cph-radius-lg);
-  overflow: hidden;
 }
 .table-wrap :deep(.t-table) {
   border-radius: 0;

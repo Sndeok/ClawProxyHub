@@ -205,6 +205,7 @@ export default {
     inputTokens: '输入 Token',
     outputTokens: '输出 Token',
     cached: '缓存命中',
+    cachedShort: '缓存',
     totalTokens: '总 Token',
     latencyTitle: '延迟',
     firstToken: '首字',

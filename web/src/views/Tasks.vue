@@ -19,7 +19,7 @@
 
     <t-tabs v-model="tab">
       <t-tab-panel value="rules" :label="$t('tasks.tabRules')">
-        <div class="table-wrap">
+        <DataTable>
           <t-table row-key="id" :data="rules" :columns="ruleColumns" table-layout="auto">
             <template #trigger="{ row }">
               <t-tag variant="light">{{ dict(triggerDict, row.trigger_type) }}</t-tag>
@@ -40,11 +40,10 @@
                 </t-popconfirm>
               </t-space>
             </template>
-          </t-table>
-        </div>
+          </t-table></DataTable>
       </t-tab-panel>
       <t-tab-panel value="runs" :label="$t('tasks.tabRuns')">
-        <div class="table-wrap">
+        <DataTable>
           <t-table row-key="id" :data="runs" :columns="runColumns" table-layout="auto">
             <template #status="{ row }">
               <!-- 错误信息并入状态 tooltip -->
@@ -62,8 +61,7 @@
                 {{ dict(runStatusDict, row.status) }}
               </t-tag>
             </template>
-          </t-table>
-        </div>
+          </t-table></DataTable>
       </t-tab-panel>
     </t-tabs>
 
@@ -124,6 +122,7 @@ import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { PlayCircleIcon } from 'tdesign-icons-vue-next'
 import { api } from '../api/client'
+import DataTable from '../components/DataTable.vue'
 import { dict, runStatusDict, triggerDict } from '../utils/dict'
 import type { TaskRule, TaskRun } from '../api/types'
 
@@ -325,13 +324,6 @@ onMounted(load)
   display: flex;
   align-items: center;
   gap: 10px;
-}
-.table-wrap {
-  background: var(--cph-surface);
-  border: 1px solid var(--cph-border);
-  border-radius: var(--cph-radius-lg);
-  overflow: hidden;
-  margin-top: 4px;
 }
 .trigger-box {
   width: 100%;

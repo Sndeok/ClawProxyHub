@@ -18,5 +18,18 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    // vendor 分包：把 tdesign / echarts / vue 全家桶各自拆出去，
+    // 首屏只需要 index + tdesign 两块，且版本不变时可长期命中缓存。
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined
+          if (id.includes('echarts') || id.includes('zrender')) return 'vendor-echarts'
+          if (id.includes('tdesign')) return 'vendor-tdesign'
+          if (id.includes('/vue/') || id.includes('@vue/') || id.includes('vue-router') || id.includes('vue-i18n') || id.includes('pinia')) return 'vendor-vue'
+          return 'vendor-misc'
+        },
+      },
+    },
   },
 })

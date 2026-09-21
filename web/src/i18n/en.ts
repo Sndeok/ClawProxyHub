@@ -205,6 +205,7 @@ export default {
     inputTokens: 'Input Tokens',
     outputTokens: 'Output Tokens',
     cached: 'Cache Hit',
+    cachedShort: 'cache',
     totalTokens: 'Total Tokens',
     latencyTitle: 'Latency',
     firstToken: 'First Token',
