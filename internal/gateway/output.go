@@ -41,11 +41,11 @@ func newEncoder(protocol, model string) streamEncoder {
 func newAggregate(protocol, model string) aggregate {
 	switch protocol {
 	case "chat_completions":
-		return &openaiAggregate{model: model}
+		return &openaiAggregate{aggregateCore: aggregateCore{model: model}}
 	case "responses":
-		return &responsesAggregate{model: model}
+		return &responsesAggregate{aggregateCore: aggregateCore{model: model}}
 	default:
-		return &anthAggregate{model: model}
+		return &anthAggregate{aggregateCore: aggregateCore{model: model}}
 	}
 }
 

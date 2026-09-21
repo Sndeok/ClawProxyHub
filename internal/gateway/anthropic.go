@@ -336,48 +336,10 @@ func anthEvent(eventType string, payload map[string]interface{}) string {
 // ---------- 非流式聚合 ----------
 
 // anthAggregate 聚合信封事件为完整 Message 响应对象。
+// anthAggregate 内嵌公共聚合核心 + Anthropic 自己的「是否已发过 message_start」标记。
 type anthAggregate struct {
-	model   string
-	text    string
-	tools   map[string]*aggrTool
-	track   toolCallTracker
-	stop    string
-	input   int64
-	output  int64
-	cached  int64
+	aggregateCore
 	started bool
-}
-
-type aggrTool struct {
-	id    string
-	name  string
-	input string
-}
-
-func (a *anthAggregate) feed(ev *pb.StreamEvent) {
-	switch e := ev.Event.(type) {
-	case *pb.StreamEvent_MessageStart:
-		a.model = e.MessageStart.Model
-	case *pb.StreamEvent_ContentDelta:
-		a.text += e.ContentDelta.Text
-	case *pb.StreamEvent_ToolCallDelta:
-		id, name := a.track.resolve(e.ToolCallDelta)
-		if a.tools == nil {
-			a.tools = map[string]*aggrTool{}
-		}
-		t, ok := a.tools[id]
-		if !ok {
-			t = &aggrTool{id: id, name: name}
-			a.tools[id] = t
-		}
-		t.input += e.ToolCallDelta.ArgumentsDelta
-	case *pb.StreamEvent_MessageFinish:
-		a.stop = mapStopReason(e.MessageFinish.FinishReason)
-		if e.MessageFinish.Usage != nil {
-			a.input, a.output = e.MessageFinish.Usage.InputTokens, e.MessageFinish.Usage.OutputTokens
-			a.cached = e.MessageFinish.Usage.CachedTokens
-		}
-	}
 }
 
 // result 生成非流式 Message JSON。
@@ -395,14 +357,14 @@ func (a *anthAggregate) result() map[string]interface{} {
 	}
 	usage := map[string]interface{}{
 		// 同上：Anthropic 语义的 input_tokens 不含缓存命中
-		"input_tokens": a.input - a.cached, "output_tokens": a.output,
+		"input_tokens": anthropicInputTokens(&a.usage), "output_tokens": a.usage.OutputTokens,
 	}
-	if a.cached > 0 {
-		usage["cache_read_input_tokens"] = a.cached
+	if a.usage.CachedTokens > 0 {
+		usage["cache_read_input_tokens"] = a.usage.CachedTokens
 	}
 	return map[string]interface{}{
 		"id": "msg_" + randHex(12), "type": "message", "role": "assistant",
-		"model": a.model, "content": content, "stop_reason": a.stop,
+		"model": a.model, "content": content, "stop_reason": mapStopReason(a.finish),
 		"usage": usage,
 	}
 }

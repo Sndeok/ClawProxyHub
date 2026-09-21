@@ -2,6 +2,7 @@
 package admin
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -242,4 +243,157 @@ func jsonOrNull(s string) json.RawMessage {
 		return json.RawMessage("{}")
 	}
 	return json.RawMessage(s)
+}
+
+// ---------- 账号 CRUD 与登录（从 server.go 拆出） ----------
+
+// submitLogin POST /admin/accounts/login — 提交一步登录（首步或后续步）。
+// body: {plugin, method_id, form: {..}, state: "<base64>"}
+func (s *Server) submitLogin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Plugin   string            `json:"plugin"`
+		MethodID string            `json:"method_id"`
+		Form     map[string]string `json:"form"`
+		State    string            `json:"state"`
+	}
+	if !readBody(w, r, &body) {
+		return
+	}
+	var state []byte
+	if body.State != "" {
+		var err error
+		state, err = base64.StdEncoding.DecodeString(body.State)
+		if err != nil {
+			http.Error(w, `{"error":"invalid state"}`, http.StatusBadRequest)
+			return
+		}
+	}
+	outcome, err := s.accounts.SubmitLogin(r.Context(), body.Plugin, body.MethodID, body.Form, state)
+	if err != nil {
+		// 业务错误（验证码错误/凭据格式/上游拒绝）用 400：401 专属管理员会话失效，
+		// 前端见 401 会清 token 跳登录页
+		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+		return
+	}
+	if outcome.Next != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"done": false, "next": viewNextStep(outcome.Next)})
+		return
+	}
+	// 建档完成：按插件账号级任务能力自动生成规则（默认停用，任务页手动启用）
+	if outcome.AccountID > 0 {
+		s.engine.EnsureAccountRules(r.Context(), body.Plugin, outcome.AccountID)
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"done": true, "account_id": outcome.AccountID})
+}
+
+// listAccounts GET /admin/accounts?plugin=stub
+func (s *Server) listAccounts(w http.ResponseWriter, r *http.Request) {
+	pluginName := r.URL.Query().Get("plugin")
+	var accts []model.Account
+	q := s.db
+	if pluginName != "" {
+		var p model.Plugin
+		if err := s.db.Where("name = ?", pluginName).First(&p).Error; err != nil {
+			http.Error(w, `{"error":"unknown plugin"}`, http.StatusNotFound)
+			return
+		}
+		q = q.Where("plugin_id = ?", p.ID)
+	}
+	if err := q.Order("id").Find(&accts).Error; err != nil {
+		http.Error(w, `{"error":"db"}`, http.StatusInternalServerError)
+		return
+	}
+	type acctView struct {
+		ID          int64   `json:"id"`
+		PluginID    int64   `json:"plugin_id"`
+		GroupIDs    []int64 `json:"group_ids"`
+		Name        string  `json:"display_name"`
+		Status      string  `json:"status"`
+		PauseReason string  `json:"pause_reason"`
+		PausedUntil *string `json:"paused_until"`
+		RefreshAt   *string `json:"last_refresh_at"`
+		Credits     *struct {
+			Remaining string `json:"remaining,omitempty"`
+			Total     string `json:"total,omitempty"`
+			// 积分包到期概览：快过期（7 天内）的剩余合计 + 最近一个到期时间
+			Expiring   float64 `json:"expiring,omitempty"`
+			NextExpiry string  `json:"next_expiry,omitempty"`
+			NextLeft   float64 `json:"next_left,omitempty"`
+			Packages   int     `json:"packages,omitempty"`
+		} `json:"credits,omitempty"`
+		// 今日用量：token / 缓存 / 积分（积分优先取插件上报的逐次累加，缺失时用积分快照差值估算）
+		TodayTokens   int64   `json:"today_tokens"`
+		TodayCached   int64   `json:"today_cached"`
+		TodayCredits  float64 `json:"today_credits"`
+		TodayCreditsE bool    `json:"today_credits_estimated"`
+		TodayRequests int64   `json:"today_requests"`
+	}
+	today := todayStatsByAccount(s.db)
+	var out []acctView
+	for _, a := range accts {
+		v := acctView{ID: a.ID, PluginID: a.PluginID, GroupIDs: accountGroupIDs(s.db, a.ID), Name: a.DisplayName,
+			Status: a.Status, PauseReason: a.PauseReason}
+		if t := today[a.ID]; t != nil {
+			v.TodayTokens, v.TodayCached = t.Tokens, t.Cached
+			v.TodayRequests, v.TodayCredits = t.Requests, t.Credits
+			if t.Credits == 0 && t.HasSnap && t.Snapshot > 0 {
+				// 插件还没上报逐次积分：用上游积分快照差值兜底（前端标注估算）
+				v.TodayCredits, v.TodayCreditsE = t.Snapshot, true
+			}
+		}
+		if a.PausedUntil != nil {
+			t := a.PausedUntil.Format("2006-01-02T15:04:05Z07:00")
+			v.PausedUntil = &t
+		}
+		if a.LastRefreshAt != nil {
+			t := a.LastRefreshAt.Format("2006-01-02T15:04:05Z07:00")
+			v.RefreshAt = &t
+		}
+		// 积分列：credits_json 快照里的剩余/总（插件解析了才有，无则不渲染该列）
+		if a.CreditsJSON != "" {
+			var c struct {
+				Total     string `json:"total"`
+				Remaining string `json:"remaining"`
+			}
+			if json.Unmarshal([]byte(a.CreditsJSON), &c) == nil && (c.Total != "" || c.Remaining != "") {
+				exp := account.CreditExpiryOf(a.CreditsJSON)
+				next := ""
+				if !exp.NextAt.IsZero() {
+					next = exp.NextAt.Format("2006-01-02 15:04:05")
+				}
+				v.Credits = &struct {
+					Remaining  string  `json:"remaining,omitempty"`
+					Total      string  `json:"total,omitempty"`
+					Expiring   float64 `json:"expiring,omitempty"`
+					NextExpiry string  `json:"next_expiry,omitempty"`
+					NextLeft   float64 `json:"next_left,omitempty"`
+					Packages   int     `json:"packages,omitempty"`
+				}{
+					Remaining: c.Remaining, Total: c.Total,
+					Expiring: exp.Expiring, NextExpiry: next, NextLeft: exp.NextLeft, Packages: exp.Packages,
+				}
+			}
+		}
+		out = append(out, v)
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"accounts": out})
+}
+
+// deleteAccount DELETE /admin/accounts/{id}
+func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
+	if err := s.accounts.Delete(parseInt(r.PathValue("id"))); err != nil {
+		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"deleted": true})
+}
+
+// refreshAccount POST /admin/accounts/{id}/refresh
+func (s *Server) refreshAccount(w http.ResponseWriter, r *http.Request) {
+	acct, err := s.accounts.Refresh(r.Context(), parseInt(r.PathValue("id")))
+	if err != nil {
+		http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"status": acct.Status})
 }

@@ -13,13 +13,13 @@ import (
 
 func TestNormalizeMarketProxy(t *testing.T) {
 	ok := map[string]string{
-		"":                              "",
-		"   ":                           "",
-		"127.0.0.1:1080":                "socks5://127.0.0.1:1080",
-		"socks5://127.0.0.1:1080":       "socks5://127.0.0.1:1080",
+		"":                                   "",
+		"   ":                                "",
+		"127.0.0.1:1080":                     "socks5://127.0.0.1:1080",
+		"socks5://127.0.0.1:1080":            "socks5://127.0.0.1:1080",
 		"socks5h://user:pass@h.example:1080": "socks5h://user:pass@h.example:1080",
-		"http://proxy.example:3128":     "http://proxy.example:3128",
-		"https://proxy.example:8443":    "https://proxy.example:8443",
+		"http://proxy.example:3128":          "http://proxy.example:3128",
+		"https://proxy.example:8443":         "https://proxy.example:8443",
 	}
 	for in, want := range ok {
 		got, err := normalizeMarketProxy(in)
@@ -33,10 +33,10 @@ func TestNormalizeMarketProxy(t *testing.T) {
 	}
 
 	for _, bad := range []string{
-		"ftp://host:21",       // 协议不支持
-		"socks5://host",       // 缺端口
-		"socks5://",           // 缺 host
-		"http://host:port",    // 端口非数字
+		"ftp://host:21",    // 协议不支持
+		"socks5://host",    // 缺端口
+		"socks5://",        // 缺 host
+		"http://host:port", // 端口非数字
 	} {
 		if _, err := normalizeMarketProxy(bad); err == nil {
 			t.Errorf("normalize(%q) should fail", bad)

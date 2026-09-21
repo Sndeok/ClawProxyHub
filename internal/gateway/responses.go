@@ -318,43 +318,9 @@ func responsesUsagePayload(in, out, cached int64) map[string]interface{} {
 	return usage
 }
 
+// responsesAggregate 内嵌公共聚合核心，按「出现顺序」输出 output 项。
 type responsesAggregate struct {
-	model  string
-	text   string
-	tools  map[string]*aggrTool
-	track  toolCallTracker
-	order  []string
-	finish string
-	input  int64
-	output int64
-	cached int64
-}
-
-func (a *responsesAggregate) feed(ev *pb.StreamEvent) {
-	switch e := ev.Event.(type) {
-	case *pb.StreamEvent_MessageStart:
-		a.model = e.MessageStart.Model
-	case *pb.StreamEvent_ContentDelta:
-		a.text += e.ContentDelta.Text
-	case *pb.StreamEvent_ToolCallDelta:
-		id, name := a.track.resolve(e.ToolCallDelta)
-		if a.tools == nil {
-			a.tools = map[string]*aggrTool{}
-		}
-		t, ok := a.tools[id]
-		if !ok {
-			t = &aggrTool{id: id, name: name}
-			a.tools[id] = t
-			a.order = append(a.order, id)
-		}
-		t.input += e.ToolCallDelta.ArgumentsDelta
-	case *pb.StreamEvent_MessageFinish:
-		a.finish = e.MessageFinish.FinishReason
-		if e.MessageFinish.Usage != nil {
-			a.input, a.output = e.MessageFinish.Usage.InputTokens, e.MessageFinish.Usage.OutputTokens
-			a.cached = e.MessageFinish.Usage.CachedTokens
-		}
-	}
+	aggregateCore
 }
 
 func (a *responsesAggregate) result() map[string]interface{} {
@@ -378,7 +344,7 @@ func (a *responsesAggregate) result() map[string]interface{} {
 	return map[string]interface{}{
 		"id": "resp_" + randHex(16), "object": "response", "model": a.model,
 		"status": "completed", "output": output,
-		"usage": responsesUsagePayload(a.input, a.output, a.cached),
+		"usage": responsesUsagePayload(a.usage.InputTokens, a.usage.OutputTokens, a.usage.CachedTokens),
 	}
 }
 
