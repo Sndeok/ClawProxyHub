@@ -125,8 +125,12 @@ func run() error {
 	settings := setting.New(db)
 	// 调用日志保留策略（settings.logs.retention_days，0 = 永久保留）
 	admin.StartLogRetention(ctx, db, settings)
-	gw := gateway.New(db, cfg.DataDir, plugins, router.New(db), accounts, settings)
-	adminSrv := admin.New(db, accounts, plugins, engine, settings, cfg.MarketplaceURL, cfg.MarketProxy)
+	// 路由解析器（会话粘性策略来自设置，改动即时生效）
+	rt := router.New(db)
+	rt.SetStickyPolicy(settings.StickyTTL(), settings.StickyCleanPeriod())
+	rt.StartJanitor(ctx)
+	gw := gateway.New(db, cfg.DataDir, plugins, rt, accounts, settings)
+	adminSrv := admin.New(db, accounts, plugins, engine, settings, cfg.MarketplaceURL, cfg.MarketProxy, rt)
 
 	mux := http.NewServeMux()
 	mux.Handle("/v1/", gw.Handler())

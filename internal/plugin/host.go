@@ -4,8 +4,10 @@ package plugin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -111,13 +113,42 @@ func (h *HostService) GetProxy(ctx context.Context, r *pb.GetProxyRequest) (*pb.
 
 func (h *HostService) GetSettings(ctx context.Context, r *pb.GetSettingsRequest) (*pb.GetSettingsResponse, error) {
 	var p model.Plugin
-	if err := h.db.Select("settings_json").Where("name = ?", r.Plugin).First(&p).Error; err != nil {
-		return &pb.GetSettingsResponse{Values: []byte("{}")}, nil
+	values := "{}"
+	if err := h.db.Select("settings_json").Where("name = ?", r.Plugin).First(&p).Error; err == nil && p.SettingsJSON != "" {
+		values = p.SettingsJSON
 	}
-	if p.SettingsJSON == "" {
-		p.SettingsJSON = "{}"
+	// 全局「出站标识」作为默认值下发：插件自身设置为空时用它，
+	// 这样设置页改一次就能同时作用于所有插件，插件页仍可按插件覆盖。
+	return &pb.GetSettingsResponse{Values: []byte(h.mergeOutboundDefaults(values))}, nil
+}
+
+// mergeOutboundDefaults 把 settings 里的出站标识合并进插件设置（不覆盖插件已填的值）。
+func (h *HostService) mergeOutboundDefaults(values string) string {
+	cfg := map[string]string{}
+	if json.Unmarshal([]byte(values), &cfg) != nil {
+		cfg = map[string]string{}
 	}
-	return &pb.GetSettingsResponse{Values: []byte(p.SettingsJSON)}, nil
+	for k, v := range h.outboundIdentity() {
+		if strings.TrimSpace(cfg[k]) == "" && v != "" {
+			cfg[k] = v
+		}
+	}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return values
+	}
+	return string(b)
+}
+
+// outboundIdentity 读全局出站标识（settings 表，空 = 未配置）。
+func (h *HostService) outboundIdentity() map[string]string {
+	out := map[string]string{}
+	var rows []model.Setting
+	h.db.Where("key LIKE ?", "outbound.%").Find(&rows)
+	for _, row := range rows {
+		out[strings.TrimPrefix(row.Key, "outbound.")] = strings.TrimSpace(row.Value)
+	}
+	return out
 }
 
 func (h *HostService) ServeHost(broker interface {

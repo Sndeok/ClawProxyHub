@@ -47,6 +47,48 @@
       </t-form>
     </t-card>
 
+    <t-card :title="$t('settings.outbound')" class="card" :bordered="false">
+      <t-form label-width="140px">
+        <t-form-item :label="$t('settings.outboundUA')" :help="$t('settings.outboundUAHelp')">
+          <t-input v-model="outForm.outbound_user_agent" :placeholder="outPlaceholder.ua" style="width: 520px" />
+        </t-form-item>
+        <t-form-item :label="$t('settings.clientName')" :help="$t('settings.clientNameHelp')">
+          <t-input v-model="outForm.outbound_client_name" :placeholder="outPlaceholder.name" style="width: 240px" />
+        </t-form-item>
+        <t-form-item :label="$t('settings.clientVersion')" :help="$t('settings.clientVersionHelp')">
+          <t-input v-model="outForm.outbound_client_version" :placeholder="outPlaceholder.version" style="width: 240px" />
+        </t-form-item>
+        <t-form-item :label="$t('settings.cliVersion')" :help="$t('settings.cliVersionHelp')">
+          <t-input v-model="outForm.outbound_cli_version" :placeholder="outPlaceholder.cli" style="width: 240px" />
+        </t-form-item>
+        <t-form-item>
+          <t-button theme="primary" :loading="savingOut" @click="saveOutbound">{{ $t('common.save') }}</t-button>
+          <span class="form-hint">{{ $t('settings.outboundHint') }}</span>
+        </t-form-item>
+      </t-form>
+    </t-card>
+
+    <t-card :title="$t('settings.sticky')" class="card" :bordered="false">
+      <t-form label-width="140px">
+        <t-form-item :label="$t('settings.stickySwitch')" :help="$t('settings.stickyHelp')">
+          <t-switch v-model="stickyOn" />
+          <span class="form-hint">{{ stickyOn ? $t('settings.stickyOn') : $t('settings.stickyOff') }}</span>
+        </t-form-item>
+        <t-form-item :label="$t('settings.stickyTTL')" :help="$t('settings.stickyTTLHelp')">
+          <t-input v-model="stickyForm.sticky_ttl" placeholder="30m" style="width: 160px" :disabled="!stickyOn" />
+          <span class="form-hint">{{ $t('settings.stickyTTLHint') }}</span>
+        </t-form-item>
+        <t-form-item :label="$t('settings.stickyClean')" :help="$t('settings.stickyCleanHelp')">
+          <t-input v-model="stickyForm.sticky_cleanup_period" placeholder="5m" style="width: 160px" :disabled="!stickyOn" />
+          <span class="form-hint">{{ $t('settings.stickyCleanHint') }}</span>
+        </t-form-item>
+        <t-form-item>
+          <t-button theme="primary" :loading="savingSticky" @click="saveSticky">{{ $t('common.save') }}</t-button>
+          <span class="form-hint">{{ $t('settings.stickyApply') }}</span>
+        </t-form-item>
+      </t-form>
+    </t-card>
+
     <t-card :title="$t('settings.adminPassword')" class="card" :bordered="false">
       <t-form label-width="140px">
         <t-form-item :label="$t('settings.newPassword')" mark>
@@ -74,6 +116,20 @@ const { t } = useI18n()
 const gwForm = reactive({ first_event_timeout: 90 })
 const logForm = reactive({ log_retention_days: 0 })
 const netForm = reactive({ github_proxy: '', marketplace_url: '', market_proxy: '' })
+const outForm = reactive({
+  outbound_user_agent: '', outbound_client_name: '',
+  outbound_client_version: '', outbound_cli_version: '',
+})
+// 占位符展示插件内置默认值（留空即用它们）
+const outPlaceholder = {
+  ua: 'WorkBuddy/5.5.4 WorkBuddy/5.5.4 CLI/2.137.1',
+  name: 'WorkBuddy', version: '5.5.4', cli: '2.137.1',
+}
+const stickyForm = reactive({ sticky_ttl: '30m', sticky_cleanup_period: '5m' })
+const stickyOn = ref(true)
+const savingOut = ref(false)
+const savingSticky = ref(false)
+
 const testingConn = ref(false)
 const pwForm = reactive({ password: '', confirm: '' })
 const savingGw = ref(false)
@@ -89,6 +145,13 @@ async function load() {
       github_proxy?: string
       marketplace_url?: string
       market_proxy?: string
+      outbound_user_agent?: string
+      outbound_client_name?: string
+      outbound_client_version?: string
+      outbound_cli_version?: string
+      sticky_ttl?: string
+      sticky_cleanup_period?: string
+      [key: string]: unknown
     }
   }>('/admin/settings')
   gwForm.first_event_timeout = r.settings?.first_event_timeout ?? 90
@@ -96,6 +159,12 @@ async function load() {
   netForm.github_proxy = r.settings?.github_proxy ?? ''
   netForm.marketplace_url = r.settings?.marketplace_url ?? ''
   netForm.market_proxy = r.settings?.market_proxy ?? ''
+  outForm.outbound_user_agent = r.settings?.outbound_user_agent ?? ''
+  outForm.outbound_client_name = r.settings?.outbound_client_name ?? ''
+  outForm.outbound_client_version = r.settings?.outbound_client_version ?? ''
+  outForm.outbound_cli_version = r.settings?.outbound_cli_version ?? ''
+  stickyForm.sticky_ttl = r.settings?.sticky_ttl || '30m'
+  stickyForm.sticky_cleanup_period = r.settings?.sticky_cleanup_period || '5m'
 }
 
 // 用当前输入框（未保存）的值试拉一次市场索引，确认代理是否通
@@ -151,6 +220,47 @@ async function saveLog() {
     MessagePlugin.error(e.message)
   } finally {
     savingLog.value = false
+  }
+}
+
+// 出站标识与粘性策略走同一个 PUT /admin/settings，未改的字段按当前值回传避免被清空
+async function putSettings(patch: Record<string, unknown>) {
+  const r = await api.get<{ settings: Record<string, unknown> }>('/admin/settings')
+  const merged = { ...r.settings, ...patch }
+  await api.put('/admin/settings', merged)
+}
+
+async function saveOutbound() {
+  savingOut.value = true
+  try {
+    await putSettings({
+      outbound_user_agent: outForm.outbound_user_agent.trim(),
+      outbound_client_name: outForm.outbound_client_name.trim(),
+      outbound_client_version: outForm.outbound_client_version.trim(),
+      outbound_cli_version: outForm.outbound_cli_version.trim(),
+    })
+    MessagePlugin.success(t('settings.saved'))
+    await load()
+  } catch (e: any) {
+    MessagePlugin.error(e.message)
+  } finally {
+    savingOut.value = false
+  }
+}
+
+async function saveSticky() {
+  savingSticky.value = true
+  try {
+    await putSettings({
+      sticky_ttl: stickyOn.value ? stickyForm.sticky_ttl.trim() : '1m',
+      sticky_cleanup_period: stickyForm.sticky_cleanup_period.trim() || '5m',
+    })
+    MessagePlugin.success(t('settings.saved'))
+    await load()
+  } catch (e: any) {
+    MessagePlugin.error(e.message)
+  } finally {
+    savingSticky.value = false
   }
 }
 

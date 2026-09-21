@@ -3,6 +3,7 @@
 package router
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -17,7 +18,13 @@ import (
 	pb "github.com/ShadowSmallBaby/ClawProxyHub/sdk/proto/cphv1"
 )
 
-const stickyTTL = 30 * time.Minute
+// 默认粘性参数；运行期由核心设置（settings.sticky.*）覆盖。
+const (
+	defaultStickyTTL        = 30 * time.Minute
+	defaultStickyCleanEvery = 5 * time.Minute
+	// stickyMaxEntries 粘性表上限，超过后清理过期项；仍超则整体清空（兜底防内存膨胀）。
+	stickyMaxEntries = 4096
+)
 
 // stickyEntry 粘性缓存条目。
 type stickyEntry struct {
@@ -32,10 +39,70 @@ type Router struct {
 	mu     sync.Mutex
 	rr     map[int64]int64        // routeID → 轮询计数
 	sticky map[string]stickyEntry // 指纹 → 分组+账号
+	// 粘性策略（settings.sticky.*）：ttl = 会话保持时长，cleanEvery = 后台清理周期
+	ttl        time.Duration
+	cleanEvery time.Duration
 }
 
 func New(db *gorm.DB) *Router {
-	return &Router{db: db, rr: map[int64]int64{}, sticky: map[string]stickyEntry{}}
+	return &Router{
+		db: db, rr: map[int64]int64{}, sticky: map[string]stickyEntry{},
+		ttl: defaultStickyTTL, cleanEvery: defaultStickyCleanEvery,
+	}
+}
+
+// SetStickyPolicy 更新粘性策略；非正值保持原值（管理端传空时用当前值兜底）。
+func (r *Router) SetStickyPolicy(ttl, cleanEvery time.Duration) {
+	r.mu.Lock()
+	if ttl > 0 {
+		r.ttl = ttl
+	}
+	if cleanEvery > 0 {
+		r.cleanEvery = cleanEvery
+	}
+	r.mu.Unlock()
+}
+
+// StickyPolicy 当前生效的粘性策略（设置页回显用）。
+func (r *Router) StickyPolicy() (time.Duration, time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.ttl, r.cleanEvery
+}
+
+// StartJanitor 按当前清理周期后台回收过期会话；ctx 取消即退出。
+func (r *Router) StartJanitor(ctx context.Context) {
+	go func() {
+		for {
+			r.mu.Lock()
+			every := r.cleanEvery
+			r.mu.Unlock()
+			if every <= 0 {
+				every = defaultStickyCleanEvery
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(every):
+				r.cleanupSticky()
+			}
+		}
+	}()
+}
+
+// cleanupSticky 清理过期条目；条目数超上限时整体收缩一次。
+func (r *Router) cleanupSticky() {
+	now := time.Now()
+	r.mu.Lock()
+	for k, v := range r.sticky {
+		if now.After(v.expires) {
+			delete(r.sticky, k)
+		}
+	}
+	if len(r.sticky) > stickyMaxEntries {
+		r.sticky = map[string]stickyEntry{}
+	}
+	r.mu.Unlock()
 }
 
 // Resolved 路由解析结果。
@@ -258,17 +325,12 @@ func (r *Router) lookupSticky(fp string, route *model.Route, entries []model.Rou
 }
 
 func (r *Router) saveSticky(fp string, entry model.RouteGroupEntry, accountID int64) {
+	ttl := defaultStickyTTL
 	r.mu.Lock()
-	r.sticky[fp] = stickyEntry{entry: entry, accountID: accountID, expires: time.Now().Add(stickyTTL)}
-	// 顺手清理过期项，避免无限增长
-	if len(r.sticky) > 4096 {
-		now := time.Now()
-		for k, v := range r.sticky {
-			if now.After(v.expires) {
-				delete(r.sticky, k)
-			}
-		}
+	if r.ttl > 0 {
+		ttl = r.ttl
 	}
+	r.sticky[fp] = stickyEntry{entry: entry, accountID: accountID, expires: time.Now().Add(ttl)}
 	r.mu.Unlock()
 }
 

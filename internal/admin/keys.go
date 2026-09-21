@@ -295,7 +295,8 @@ func (b *routeBody) validate() string {
 		return "name and groups required"
 	}
 	if b.Strategy == "" {
-		b.Strategy = "round_robin"
+		// 默认会话粘性：同一会话固定账号，上游 prompt 缓存才可能命中
+		b.Strategy = "sticky"
 	}
 	if b.TimeoutSeconds < 0 || b.TimeoutSeconds > 3600 {
 		return "timeout_seconds 需在 0–3600 秒之间（0 = 跟随全局）"

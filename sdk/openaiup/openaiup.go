@@ -97,7 +97,10 @@ type openAIUsage struct {
 	CreditUsed       float64 `json:"credit_used"`
 	Credits          float64 `json:"credits"`
 	CreditsConsumed  float64 `json:"credits_consumed"`
-	PromptDetails    *struct {
+	// Raw 保留整段 usage JSON：中转站对「积分」的命名五花八门，
+	// 固定字段匹配不到时用 fuzzyCredit 按名字兜底。
+	Raw           map[string]json.RawMessage `json:"-"`
+	PromptDetails *struct {
 		CachedTokens int64 `json:"cached_tokens"`
 		CacheRead    int64 `json:"cache_read_input_tokens"`
 	} `json:"prompt_tokens_details"`
@@ -151,6 +154,15 @@ func (p *Parser) Feed(line string) {
 	}
 	if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
 		return
+	}
+	if chunk.Usage != nil {
+		// 单独再解一次原始 usage，供模糊匹配积分字段用
+		var env struct {
+			Usage map[string]json.RawMessage `json:"usage"`
+		}
+		if json.Unmarshal([]byte(payload), &env) == nil {
+			chunk.Usage.Raw = env.Usage
+		}
 	}
 	for _, c := range chunk.Choices {
 		if c.Delta.Content != "" {
@@ -249,13 +261,61 @@ func maxInt64(vals ...int64) int64 {
 }
 
 // creditOf 取上游 usage 里的积分消耗（各家中转命名不一，取第一个非零）。
+// 固定字段都没有时，退回按名字模糊匹配（creditsUsed / 扣费 / 额度扣减 之类）。
 func creditOf(u *openAIUsage) float64 {
 	for _, v := range []float64{u.CreditsUsed, u.CreditUsed, u.Credits, u.CreditsConsumed} {
 		if v != 0 {
 			return v
 		}
 	}
-	return 0
+	return fuzzyCredit(u.Raw, 0)
+}
+
+// fuzzyCredit 在 usage JSON 里按字段名找积分消耗：
+// 名字含 credit/point 且含 used/consum/cost/spent/deduct 的优先，其次任何 credit/point 数字。
+// 只认正整数/浮点，负值（充值、退款）忽略。递归深度限制 2 层（details 子对象）。
+func fuzzyCredit(raw map[string]json.RawMessage, depth int) float64 {
+	if len(raw) == 0 || depth > 2 {
+		return 0
+	}
+	best, fallback := 0.0, 0.0
+	for k, v := range raw {
+		name := strings.ToLower(k)
+		var nested map[string]json.RawMessage
+		if json.Unmarshal(v, &nested) == nil && nested != nil {
+			if got := fuzzyCredit(nested, depth+1); got > best {
+				best = got
+			}
+			continue
+		}
+		if !strings.Contains(name, "credit") && !strings.Contains(name, "point") && !strings.Contains(name, "quota") {
+			continue
+		}
+		var f float64
+		if json.Unmarshal(v, &f) != nil || f <= 0 {
+			continue
+		}
+		if strings.Contains(name, "remain") || strings.Contains(name, "balance") ||
+			strings.Contains(name, "limit") || strings.Contains(name, "total") ||
+			strings.Contains(name, "left") {
+			continue // 余额类字段不是本次消耗
+		}
+		if strings.Contains(name, "used") || strings.Contains(name, "consum") ||
+			strings.Contains(name, "cost") || strings.Contains(name, "spent") ||
+			strings.Contains(name, "deduct") || strings.Contains(name, "charge") {
+			if f > best {
+				best = f
+			}
+			continue
+		}
+		if f > fallback {
+			fallback = f
+		}
+	}
+	if best > 0 {
+		return best
+	}
+	return fallback
 }
 
 // ---------- 工具 ----------

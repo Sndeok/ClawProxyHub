@@ -33,6 +33,26 @@ const KeyLogRetentionDays = "logs.retention_days"
 // 二开：改为自建插件仓库（Sndeok/ClawProxyHubPlugins）的 index.json。
 const DefaultMarketplaceURL = "https://raw.githubusercontent.com/Sndeok/ClawProxyHubPlugins/main/index.json"
 
+// 出站标识：网关代插件向上游发起请求时使用的客户端身份。
+// 留空 = 用插件内置默认（对齐官方分发包）；插件页单独配置可覆盖这里。
+const (
+	KeyOutboundUserAgent     = "outbound.user_agent"
+	KeyOutboundClientName    = "outbound.client_name"
+	KeyOutboundClientVersion = "outbound.client_version"
+	KeyOutboundCLIVersion    = "outbound.cli_version"
+)
+
+// 会话粘性策略（路由 strategy=sticky 时生效）。
+const (
+	KeyStickyTTL         = "sticky.ttl"
+	KeyStickyCleanPeriod = "sticky.cleanup_interval"
+)
+
+const (
+	defaultStickyTTL         = 30 * time.Minute
+	defaultStickyCleanPeriod = 5 * time.Minute
+)
+
 const defaultFirstEventTimeout = 90
 
 // Store 设置存储。
@@ -112,4 +132,37 @@ func (s *Store) EnsureDefault(key, def string) {
 	if err := s.db.Where("key = ?", key).First(&rec).Error; err != nil {
 		s.Set(key, def)
 	}
+}
+
+// OutboundIdentity 出站标识（空值表示用插件内置默认）。
+func (s *Store) OutboundIdentity() map[string]string {
+	return map[string]string{
+		"user_agent":     strings.TrimSpace(s.Get(KeyOutboundUserAgent, "")),
+		"client_name":    strings.TrimSpace(s.Get(KeyOutboundClientName, "")),
+		"client_version": strings.TrimSpace(s.Get(KeyOutboundClientVersion, "")),
+		"cli_version":    strings.TrimSpace(s.Get(KeyOutboundCLIVersion, "")),
+	}
+}
+
+// StickyTTL 会话粘性保持时长（一次会话多久没活动就解除绑定）。
+func (s *Store) StickyTTL() time.Duration {
+	return parseDuration(s.Get(KeyStickyTTL, ""), defaultStickyTTL, time.Minute, 24*time.Hour)
+}
+
+// StickyCleanPeriod 会话粘性后台清理周期。
+func (s *Store) StickyCleanPeriod() time.Duration {
+	return parseDuration(s.Get(KeyStickyCleanPeriod, ""), defaultStickyCleanPeriod, 30*time.Second, 24*time.Hour)
+}
+
+// parseDuration 解析时长字符串；非法或越界回退默认值。
+func parseDuration(raw string, def, min, max time.Duration) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return def
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d < min || d > max {
+		return def
+	}
+	return d
 }
