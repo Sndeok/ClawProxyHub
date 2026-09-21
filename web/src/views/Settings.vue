@@ -4,6 +4,8 @@
       
     </div>
 
+    <div class="settings-grid">
+
     <t-card :title="$t('settings.gateway')" class="card" :bordered="false">
       <t-form label-width="140px">
         <t-form-item :label="$t('settings.firstTokenTimeout')" :help="$t('settings.firstTokenTimeoutHelp')">
@@ -27,7 +29,7 @@
       </t-form>
     </t-card>
 
-    <t-card :title="$t('settings.network')" class="card" :bordered="false">
+    <t-card :title="$t('settings.network')" class="card card-wide" :bordered="false">
       <t-form label-width="140px">
         <t-form-item :label="$t('settings.marketplaceUrl')" :help="$t('settings.marketplaceHelp')">
           <t-input v-model="netForm.marketplace_url" :placeholder="$t('settings.marketplacePh')" style="width: 520px" />
@@ -47,25 +49,37 @@
       </t-form>
     </t-card>
 
-    <t-card :title="$t('settings.outbound')" class="card" :bordered="false">
-      <t-form label-width="140px">
+    <t-card :title="$t('settings.outbound')" class="card card-wide" :bordered="false">
+      <div class="plugin-tabs">
+        <t-radio-group v-model="pluginName" variant="default-filled" @change="loadPluginSettings">
+          <t-radio-button v-for="p in plugins" :key="p.name" :value="p.name">
+            {{ p.label || p.name }}
+          </t-radio-button>
+        </t-radio-group>
+        <span class="form-hint">{{ $t('settings.outboundPerPlugin') }}</span>
+      </div>
+      <t-form v-if="pluginName" label-width="140px">
         <t-form-item :label="$t('settings.outboundUA')" :help="$t('settings.outboundUAHelp')">
-          <t-input v-model="outForm.outbound_user_agent" :placeholder="outPlaceholder.ua" style="width: 520px" />
+          <t-input v-model="outForm.user_agent" :placeholder="outDefaults.user_agent" style="width: 520px" clearable />
         </t-form-item>
         <t-form-item :label="$t('settings.clientName')" :help="$t('settings.clientNameHelp')">
-          <t-input v-model="outForm.outbound_client_name" :placeholder="outPlaceholder.name" style="width: 240px" />
+          <t-input v-model="outForm.client_name" :placeholder="outDefaults.client_name" style="width: 240px" clearable />
         </t-form-item>
         <t-form-item :label="$t('settings.clientVersion')" :help="$t('settings.clientVersionHelp')">
-          <t-input v-model="outForm.outbound_client_version" :placeholder="outPlaceholder.version" style="width: 240px" />
+          <t-input v-model="outForm.client_version" :placeholder="outDefaults.client_version" style="width: 240px" clearable />
         </t-form-item>
         <t-form-item :label="$t('settings.cliVersion')" :help="$t('settings.cliVersionHelp')">
-          <t-input v-model="outForm.outbound_cli_version" :placeholder="outPlaceholder.cli" style="width: 240px" />
+          <t-input v-model="outForm.cli_version" :placeholder="outDefaults.cli_version" style="width: 240px" clearable />
         </t-form-item>
         <t-form-item>
           <t-button theme="primary" :loading="savingOut" @click="saveOutbound">{{ $t('common.save') }}</t-button>
+          <t-button variant="outline" style="margin-left: 8px" @click="loadPluginSettings">
+            {{ $t('common.refresh') }}
+          </t-button>
           <span class="form-hint">{{ $t('settings.outboundHint') }}</span>
         </t-form-item>
       </t-form>
+      <t-alert v-else theme="info" :message="$t('settings.outboundNoPlugin')" />
     </t-card>
 
     <t-card :title="$t('settings.sticky')" class="card" :bordered="false">
@@ -102,6 +116,7 @@
         </t-form-item>
       </t-form>
     </t-card>
+    </div>
   </div>
 </template>
 
@@ -116,15 +131,12 @@ const { t } = useI18n()
 const gwForm = reactive({ first_event_timeout: 90 })
 const logForm = reactive({ log_retention_days: 0 })
 const netForm = reactive({ github_proxy: '', marketplace_url: '', market_proxy: '' })
-const outForm = reactive({
-  outbound_user_agent: '', outbound_client_name: '',
-  outbound_client_version: '', outbound_cli_version: '',
-})
-// 占位符展示插件内置默认值（留空即用它们）
-const outPlaceholder = {
-  ua: 'WorkBuddy/5.5.4 WorkBuddy/5.5.4 CLI/2.137.1',
-  name: 'WorkBuddy', version: '5.5.4', cli: '2.137.1',
-}
+// 出站标识：按插件单独配置（键名与插件设置 schema 一致）
+const outForm = reactive({ user_agent: '', client_name: '', client_version: '', cli_version: '' })
+// 插件内置默认值（来自 manifest 的 settings schema default），显示为占位符
+const outDefaults = reactive({ user_agent: '', client_name: '', client_version: '', cli_version: '' })
+const plugins = ref<{ name: string; label: string }[]>([])
+const pluginName = ref('')
 const stickyForm = reactive({ sticky_ttl: '30m', sticky_cleanup_period: '5m' })
 const stickyOn = ref(true)
 const savingOut = ref(false)
@@ -136,6 +148,36 @@ const savingGw = ref(false)
 const savingLog = ref(false)
 const savingNet = ref(false)
 const savingPw = ref(false)
+
+const outKeys = ['user_agent', 'client_name', 'client_version', 'cli_version'] as const
+
+// 拉插件列表（默认选第一个）
+async function loadPlugins() {
+  const r = await api.get<{ plugins: { name: string; label?: string }[] }>('/admin/plugins')
+  plugins.value = (r.plugins ?? []).map((p) => ({ name: p.name, label: p.label || p.name }))
+  if (!pluginName.value && plugins.value.length) {
+    pluginName.value = plugins.value[0].name
+    await loadPluginSettings()
+  }
+}
+
+// 读单个插件的设置：值 + schema 默认值（默认值作为输入框占位符）
+async function loadPluginSettings() {
+  if (!pluginName.value) return
+  try {
+    const r = await api.get<{ schema: any; values: Record<string, string> }>(
+      `/admin/plugins/${pluginName.value}/settings`,
+    )
+    const values = r.values ?? {}
+    const props = r.schema?.properties ?? {}
+    for (const k of outKeys) {
+      outForm[k] = values[k] ?? ''
+      outDefaults[k] = props[k]?.default ?? ''
+    }
+  } catch (e: any) {
+    MessagePlugin.error(e.message)
+  }
+}
 
 async function load() {
   const r = await api.get<{
@@ -159,10 +201,6 @@ async function load() {
   netForm.github_proxy = r.settings?.github_proxy ?? ''
   netForm.marketplace_url = r.settings?.marketplace_url ?? ''
   netForm.market_proxy = r.settings?.market_proxy ?? ''
-  outForm.outbound_user_agent = r.settings?.outbound_user_agent ?? ''
-  outForm.outbound_client_name = r.settings?.outbound_client_name ?? ''
-  outForm.outbound_client_version = r.settings?.outbound_client_version ?? ''
-  outForm.outbound_cli_version = r.settings?.outbound_cli_version ?? ''
   stickyForm.sticky_ttl = r.settings?.sticky_ttl || '30m'
   stickyForm.sticky_cleanup_period = r.settings?.sticky_cleanup_period || '5m'
 }
@@ -230,17 +268,19 @@ async function putSettings(patch: Record<string, unknown>) {
   await api.put('/admin/settings', merged)
 }
 
+// 保存到该插件自己的设置里；键留空 = 用插件内置默认
 async function saveOutbound() {
+  if (!pluginName.value) return
   savingOut.value = true
   try {
-    await putSettings({
-      outbound_user_agent: outForm.outbound_user_agent.trim(),
-      outbound_client_name: outForm.outbound_client_name.trim(),
-      outbound_client_version: outForm.outbound_client_version.trim(),
-      outbound_cli_version: outForm.outbound_cli_version.trim(),
-    })
+    const r = await api.get<{ values: Record<string, string> }>(
+      `/admin/plugins/${pluginName.value}/settings`,
+    )
+    const merged: Record<string, string> = { ...(r.values ?? {}) }
+    for (const k of outKeys) merged[k] = outForm[k].trim()
+    await api.put(`/admin/plugins/${pluginName.value}/settings`, { values: merged })
     MessagePlugin.success(t('settings.saved'))
-    await load()
+    await loadPluginSettings()
   } catch (e: any) {
     MessagePlugin.error(e.message)
   } finally {
@@ -298,10 +338,29 @@ async function savePw() {
   }
 }
 
-onMounted(load)
+onMounted(async () => {
+  await Promise.all([load(), loadPlugins()])
+})
 </script>
 
 <style scoped>
+/* 双列栅格：窄卡片并排，宽卡片（网络/出站标识）占满整行，避免右侧留白 */
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.settings-grid > .card-wide { grid-column: 1 / -1; }
+.settings-grid > :deep(.t-card) { margin-bottom: 0; }
+.plugin-tabs {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.card { margin-bottom: 0; }
 .card { max-width: 720px; margin-bottom: 16px }
 .form-hint {
   margin-left: 12px;

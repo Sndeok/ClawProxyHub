@@ -164,6 +164,8 @@ export default {
     changePassword: '修改密码',
     saved: '已保存，即时生效',
     outbound: '出站标识',
+    outboundPerPlugin: '每个插件单独配置；留空 = 用插件内置默认（下方灰字即默认值）',
+    outboundNoPlugin: '还没有已安装的插件，先去插件页安装',
     outboundUA: '出站 User-Agent',
     outboundUAHelp: '网关向上游发起请求时的客户端标识，留空用插件内置默认（已对齐官方 WorkBuddy）',
     clientName: '客户端名称',

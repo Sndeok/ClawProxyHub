@@ -164,6 +164,8 @@ export default {
     changePassword: 'Change Password',
     saved: 'Saved and applied immediately',
     outbound: 'Outbound Identity',
+    outboundPerPlugin: 'Configured per plugin; empty = use the plugin built-in default (shown as the grey placeholder)',
+    outboundNoPlugin: 'No plugin installed yet - install one on the Plugins page first',
     outboundUA: 'Outbound User-Agent',
     outboundUAHelp: 'Client identity used for upstream requests. Leave empty to use the plugin built-in default (aligned with official WorkBuddy)',
     clientName: 'Client Name',
