@@ -71,7 +71,7 @@ export default {
     yearsAgo: '{n} 年前',
   },
   setup: {
-    title: '初始化 ClawProxyHub',
+    title: '初始化 ClawProxyHub-Next',
     hint: '首次使用，请创建管理员账号',
     username: '用户名',
     usernamePh: '如 admin',
@@ -278,6 +278,7 @@ export default {
     totalCredits: '总积分',
     noQuotaData: '暂无账号积分数据',
     recentTitle: '最近请求',
+    viewAllLogs: '查看全部日志 →',
     legendRequests: '请求',
     legendSuccess: '成功',
     model: '模型',

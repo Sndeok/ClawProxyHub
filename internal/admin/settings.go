@@ -28,8 +28,8 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 			"outbound_client_version": s.settings.Get(setting.KeyOutboundClientVersion, ""),
 			"outbound_cli_version":    s.settings.Get(setting.KeyOutboundCLIVersion, ""),
 			// 会话粘性策略
-			"sticky_ttl":            s.settings.StickyTTL().String(),
-			"sticky_cleanup_period": s.settings.StickyCleanPeriod().String(),
+			"sticky_ttl":            shortDuration(s.settings.StickyTTL()),
+			"sticky_cleanup_period": shortDuration(s.settings.StickyCleanPeriod()),
 		},
 	})
 }
@@ -185,4 +185,18 @@ func parseStickyDuration(raw string, min, max time.Duration) (time.Duration, err
 		return 0, fmt.Errorf("out of range")
 	}
 	return d, nil
+}
+
+// shortDuration 人类可读的时长：1h / 30m / 90s（Go 默认会输出 30m0s，界面不好看）。
+func shortDuration(d time.Duration) string {
+	if d <= 0 {
+		return ""
+	}
+	if d%time.Hour == 0 {
+		return fmt.Sprintf("%dh", int(d/time.Hour))
+	}
+	if d%time.Minute == 0 {
+		return fmt.Sprintf("%dm", int(d/time.Minute))
+	}
+	return fmt.Sprintf("%ds", int(d/time.Second))
 }

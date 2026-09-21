@@ -4,7 +4,7 @@
       <div class="brand" @click="router.push('/dashboard')">
         <img class="brand-badge" src="/logo.png" alt="ClawProxyHub" />
         <div v-if="!collapsed" class="brand-text">
-          <span class="brand-name">Claw<span>ProxyHub</span></span>
+          <span class="brand-name">Claw<span>ProxyHub</span><em class="brand-next">Next</em></span>
           <span class="brand-sub">{{ $t('common.brandSub') }}</span>
         </div>
       </div>
@@ -266,7 +266,7 @@ function logout() {
   flex-direction: column;
   min-width: 0;
   background: var(--cph-bg-aside);
-  border-right: 1px solid var(--cph-border);
+  /* 参考 shadcn：侧栏无边框，靠底色区分 */
   transition: width 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
   overflow: hidden;
 }
@@ -299,6 +299,19 @@ function logout() {
   white-space: nowrap;
   color: var(--cph-text-1);
   letter-spacing: 0.2px;
+}
+.brand-next {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--cph-text-3);
+  border: 1px solid var(--cph-border-strong);
+  border-radius: 4px;
+  vertical-align: middle;
 }
 .brand-name span {
   font-weight: 400;

@@ -9,7 +9,7 @@
     <t-card :title="$t('settings.gateway')" class="card" :bordered="false">
       <t-form label-width="140px">
         <t-form-item :label="$t('settings.firstTokenTimeout')" :help="$t('settings.firstTokenTimeoutHelp')">
-          <t-input-number v-model="gwForm.first_event_timeout" :min="5" :max="3600" theme="column" style="width: 160px" />
+          <t-input-number v-model="gwForm.first_event_timeout" :min="5" :max="3600" theme="column" style="max-width: 160px; width: 100%" />
         </t-form-item>
         <t-form-item>
           <t-button theme="primary" :loading="savingGw" @click="saveGw">{{ $t('common.save') }}</t-button>
@@ -20,7 +20,7 @@
     <t-card :title="$t('settings.logs')" class="card" :bordered="false">
       <t-form label-width="140px">
         <t-form-item :label="$t('settings.logRetention')" :help="$t('settings.logRetentionHelp')">
-          <t-input-number v-model="logForm.log_retention_days" :min="0" :max="3650" theme="column" style="width: 160px" />
+          <t-input-number v-model="logForm.log_retention_days" :min="0" :max="3650" theme="column" style="max-width: 160px; width: 100%" />
         </t-form-item>
         <t-form-item>
           <t-button theme="primary" :loading="savingLog" @click="saveLog">{{ $t('common.save') }}</t-button>
@@ -29,16 +29,16 @@
       </t-form>
     </t-card>
 
-    <t-card :title="$t('settings.network')" class="card card-wide" :bordered="false">
+    <t-card :title="$t('settings.network')" class="card" :bordered="false">
       <t-form label-width="140px">
         <t-form-item :label="$t('settings.marketplaceUrl')" :help="$t('settings.marketplaceHelp')">
-          <t-input v-model="netForm.marketplace_url" :placeholder="$t('settings.marketplacePh')" style="width: 520px" />
+          <t-input v-model="netForm.marketplace_url" :placeholder="$t('settings.marketplacePh')" style="max-width: 520px; width: 100%" />
         </t-form-item>
         <t-form-item :label="$t('settings.marketProxy')" :help="$t('settings.marketProxyHelp')">
-          <t-input v-model="netForm.market_proxy" :placeholder="$t('settings.marketProxyPh')" style="width: 520px" />
+          <t-input v-model="netForm.market_proxy" :placeholder="$t('settings.marketProxyPh')" style="max-width: 520px; width: 100%" />
         </t-form-item>
         <t-form-item :label="$t('settings.githubProxy')" :help="$t('settings.githubProxyHelp')">
-          <t-input v-model="netForm.github_proxy" placeholder="https://ghproxy.com" style="width: 520px" />
+          <t-input v-model="netForm.github_proxy" placeholder="https://ghproxy.com" style="max-width: 520px; width: 100%" />
         </t-form-item>
         <t-form-item>
           <t-button theme="primary" :loading="savingNet" @click="saveNet">{{ $t('common.save') }}</t-button>
@@ -49,7 +49,7 @@
       </t-form>
     </t-card>
 
-    <t-card :title="$t('settings.outbound')" class="card card-wide" :bordered="false">
+    <t-card :title="$t('settings.outbound')" class="card" :bordered="false">
       <div class="plugin-tabs">
         <t-radio-group v-model="pluginName" variant="default-filled" @change="loadPluginSettings">
           <t-radio-button v-for="p in plugins" :key="p.name" :value="p.name">
@@ -60,16 +60,16 @@
       </div>
       <t-form v-if="pluginName" label-width="140px">
         <t-form-item :label="$t('settings.outboundUA')" :help="$t('settings.outboundUAHelp')">
-          <t-input v-model="outForm.user_agent" :placeholder="outDefaults.user_agent" style="width: 520px" clearable />
+          <t-input v-model="outForm.user_agent" :placeholder="outDefaults.user_agent" style="max-width: 520px; width: 100%" clearable />
         </t-form-item>
         <t-form-item :label="$t('settings.clientName')" :help="$t('settings.clientNameHelp')">
-          <t-input v-model="outForm.client_name" :placeholder="outDefaults.client_name" style="width: 240px" clearable />
+          <t-input v-model="outForm.client_name" :placeholder="outDefaults.client_name" style="max-width: 240px; width: 100%" clearable />
         </t-form-item>
         <t-form-item :label="$t('settings.clientVersion')" :help="$t('settings.clientVersionHelp')">
-          <t-input v-model="outForm.client_version" :placeholder="outDefaults.client_version" style="width: 240px" clearable />
+          <t-input v-model="outForm.client_version" :placeholder="outDefaults.client_version" style="max-width: 240px; width: 100%" clearable />
         </t-form-item>
         <t-form-item :label="$t('settings.cliVersion')" :help="$t('settings.cliVersionHelp')">
-          <t-input v-model="outForm.cli_version" :placeholder="outDefaults.cli_version" style="width: 240px" clearable />
+          <t-input v-model="outForm.cli_version" :placeholder="outDefaults.cli_version" style="max-width: 240px; width: 100%" clearable />
         </t-form-item>
         <t-form-item>
           <t-button theme="primary" :loading="savingOut" @click="saveOutbound">{{ $t('common.save') }}</t-button>
@@ -89,11 +89,11 @@
           <span class="form-hint">{{ stickyOn ? $t('settings.stickyOn') : $t('settings.stickyOff') }}</span>
         </t-form-item>
         <t-form-item :label="$t('settings.stickyTTL')" :help="$t('settings.stickyTTLHelp')">
-          <t-input v-model="stickyForm.sticky_ttl" placeholder="30m" style="width: 160px" :disabled="!stickyOn" />
+          <t-input v-model="stickyForm.sticky_ttl" placeholder="30m" style="max-width: 160px; width: 100%" :disabled="!stickyOn" />
           <span class="form-hint">{{ $t('settings.stickyTTLHint') }}</span>
         </t-form-item>
         <t-form-item :label="$t('settings.stickyClean')" :help="$t('settings.stickyCleanHelp')">
-          <t-input v-model="stickyForm.sticky_cleanup_period" placeholder="5m" style="width: 160px" :disabled="!stickyOn" />
+          <t-input v-model="stickyForm.sticky_cleanup_period" placeholder="5m" style="max-width: 160px; width: 100%" :disabled="!stickyOn" />
           <span class="form-hint">{{ $t('settings.stickyCleanHint') }}</span>
         </t-form-item>
         <t-form-item>
@@ -106,10 +106,10 @@
     <t-card :title="$t('settings.adminPassword')" class="card" :bordered="false">
       <t-form label-width="140px">
         <t-form-item :label="$t('settings.newPassword')" mark>
-          <t-input v-model="pwForm.password" type="password" :placeholder="$t('settings.passwordPh')" style="width: 280px" />
+          <t-input v-model="pwForm.password" type="password" :placeholder="$t('settings.passwordPh')" style="max-width: 280px; width: 100%" />
         </t-form-item>
         <t-form-item :label="$t('settings.confirmPassword')" mark>
-          <t-input v-model="pwForm.confirm" type="password" style="width: 280px" />
+          <t-input v-model="pwForm.confirm" type="password" style="max-width: 280px; width: 100%" />
         </t-form-item>
         <t-form-item>
           <t-button theme="primary" :loading="savingPw" @click="savePw">{{ $t('settings.changePassword') }}</t-button>
@@ -344,15 +344,19 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* 双列栅格：窄卡片并排，宽卡片（网络/出站标识）占满整行，避免右侧留白 */
+/* 双列自适应：窄卡片并排铺满整行，宽卡片（网络/出站标识）独占一行 */
+/* 所有卡片等宽自适应：一行放得下就并排，放不下自动换行，右侧不留空 */
 .settings-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
-  gap: 14px;
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
 }
-.settings-grid > .card-wide { grid-column: 1 / -1; }
-.settings-grid > :deep(.t-card) { margin-bottom: 0; }
+.settings-grid > * {
+  flex: 1 1 420px;
+  min-width: 0;
+  margin-bottom: 0 !important;
+}
 .plugin-tabs {
   display: flex;
   align-items: center;

@@ -278,6 +278,7 @@ export default {
     totalCredits: 'Total Credits',
     noQuotaData: 'No account credits data',
     recentTitle: 'Recent Requests',
+    viewAllLogs: 'View all logs →',
     legendRequests: 'Requests',
     legendSuccess: 'Success',
     model: 'Model',

@@ -75,11 +75,29 @@
     <t-row :gutter="[16, 16]" class="block">
       <t-col :span="12">
         <t-card :header="$t('dashboard.recentTitle')" :bordered="false">
-          <t-table row-key="ID" size="small" :data="recent" :columns="recentColumns">
-            <template #status="{ row }">
-              <t-tag :theme="row.Status < 400 ? 'success' : 'danger'" variant="light">{{ row.Status }}</t-tag>
-            </template>
-          </t-table>
+          <div class="table-wrap">
+            <t-table row-key="ID" size="small" :data="recent" :columns="recentColumns" :loading="recentLoading">
+              <template #status="{ row }">
+                <t-tag :theme="row.Status < 400 ? 'success' : 'danger'" variant="light">{{ row.Status }}</t-tag>
+              </template>
+            </t-table>
+          </div>
+          <!-- 最近请求分页：共 N 条，可翻页（完整明细在「日志」页） -->
+          <div class="recent-foot">
+            <span class="muted">{{ $t('logs.totalCount', { n: recentTotal }) }}</span>
+            <div class="recent-pager">
+              <t-pagination
+                v-model:current="recentPage"
+                v-model:pageSize="recentPageSize"
+                :total="recentTotal"
+                :page-size-options="[10, 20, 50]"
+                size="small"
+                @current-change="loadRecent"
+                @page-size-change="onRecentPageSize"
+              />
+              <t-link theme="default" @click="router.push('/logs')">{{ $t('dashboard.viewAllLogs') }}</t-link>
+            </div>
+          </div>
         </t-card>
       </t-col>
     </t-row>
@@ -89,6 +107,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
@@ -101,12 +120,19 @@ import { dict, protocolDict } from '../utils/dict'
 import type { RequestLog, Stats } from '../api/types'
 
 const { t } = useI18n()
+const router = useRouter()
 
 echarts.use([LineChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const stats = ref<Stats | null>(null)
 const trend = ref<{ date: string; requests: number; success: number; tokens: number }[]>([])
+// recent：表格当前页（服务端分页）；recentAll：模型分布聚合用的最近 200 条
 const recent = ref<RequestLog[]>([])
+const recentAll = ref<RequestLog[]>([])
+const recentTotal = ref(0)
+const recentPage = ref(1)
+const recentPageSize = ref(10)
+const recentLoading = ref(false)
 const quotaPlugins = ref<{ plugin: string; accounts: number; quota: Record<string, number> }[]>([])
 const trendEl = ref<HTMLElement>()
 let chart: echarts.ECharts | null = null
@@ -114,7 +140,7 @@ let chart: echarts.ECharts | null = null
 let resizeObserver: ResizeObserver | null = null
 
 const cards = computed(() => [
-  { label: t('dashboard.todayRequests'), value: stats.value?.today_requests ?? '-', icon: DashboardIcon, bg: 'linear-gradient(135deg, var(--td-brand-color-4), var(--td-brand-color-6))', fg: '#fff' },
+  { label: t('dashboard.todayRequests'), value: stats.value?.today_requests ?? '-', icon: DashboardIcon, bg: 'linear-gradient(135deg, #3f3f46, #18181b)', fg: '#fafafa' },
   { label: t('dashboard.successRate'), value: stats.value ? `${stats.value.success_rate}%` : '-', icon: CheckCircleIcon, bg: 'linear-gradient(135deg, var(--td-success-color-4), var(--td-success-color-6))', fg: '#fff' },
   { label: t('dashboard.totalTokens'), value: fmt(stats.value?.total_tokens ?? 0), icon: ChartBarIcon, bg: 'linear-gradient(135deg, var(--td-warning-color-4), var(--td-warning-color-6))', fg: '#fff' },
   { label: t('dashboard.activeAccounts'), value: stats.value?.active_accounts ?? '-', icon: UserIcon, bg: 'linear-gradient(135deg, var(--td-error-color-4), var(--td-error-color-6))', fg: '#fff' },
@@ -135,7 +161,7 @@ const recentColumns = computed(() => [
 // 模型调用分布（最近 200 条聚合）
 const modelStats = computed(() => {
   const counts = new Map<string, number>()
-  for (const log of recent.value) {
+  for (const log of recentAll.value) {
     counts.set(log.Model, (counts.get(log.Model) ?? 0) + 1)
   }
   const rows = [...counts.entries()]
@@ -187,6 +213,25 @@ function onResize() {
 // 语言切换后重绘图表（图例/系列名跟随）
 watch(() => t('dashboard.legendRequests'), renderChart)
 
+// 最近请求：服务端分页，默认每页 10 条
+async function loadRecent() {
+  recentLoading.value = true
+  try {
+    const r = await api.get<{ logs: RequestLog[]; total: number }>(
+      `/admin/logs?page=${recentPage.value}&page_size=${recentPageSize.value}`,
+    )
+    recent.value = r.logs ?? []
+    recentTotal.value = r.total ?? 0
+  } finally {
+    recentLoading.value = false
+  }
+}
+
+function onRecentPageSize() {
+  recentPage.value = 1
+  loadRecent()
+}
+
 onMounted(async () => {
   const [s, t, l, q] = await Promise.all([
     api.get<Stats>('/admin/stats'),
@@ -196,7 +241,8 @@ onMounted(async () => {
   ])
   stats.value = s
   trend.value = t.trend ?? []
-  recent.value = l.logs ?? []
+  recentAll.value = l.logs ?? []
+  await loadRecent()
   quotaPlugins.value = q.plugins ?? []
   renderChart()
   window.addEventListener('resize', onResize)
@@ -216,6 +262,19 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.recent-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.recent-pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
 .block {
   margin-top: 16px;
 }
