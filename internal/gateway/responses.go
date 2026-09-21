@@ -2,8 +2,11 @@
 package gateway
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
+	"strings"
 
 	pb "github.com/ShadowSmallBaby/ClawProxyHub/sdk/proto/cphv1"
 )
@@ -43,24 +46,22 @@ func parseResponsesRequest(body []byte) (*pb.ChatRequest, error) {
 		req.Messages = append(req.Messages, &pb.EnvelopeMessage{Role: "system", Text: raw.Instructions})
 	}
 
-	// input 可能是纯字符串，也可能是消息数组
-	var inputText string
-	if err := json.Unmarshal(raw.Input, &inputText); err == nil && inputText != "" {
-		req.Messages = append(req.Messages, &pb.EnvelopeMessage{Role: "user", Text: inputText})
-	} else {
-		var items []struct {
-			Type    string          `json:"type"`
-			Role    string          `json:"role"`
-			Content json.RawMessage `json:"content"`
-			// function_call（assistant 历史里的工具调用）
-			CallID    string `json:"call_id"`
-			Name      string `json:"name"`
-			Arguments string `json:"arguments"`
-			// function_call_output（工具结果）
-			Output string `json:"output"`
+	// input 可能是纯字符串、单个 item 对象，或 item 数组。
+	//
+	// 各客户端对同一字段的类型并不一致：function_call_output.output 可能是字符串、
+	// 也可能是内容块数组；custom_tool_call 把入参放在 input 而非 arguments；部分实现
+	// 还会把 arguments 直接写成对象。原先用固定 string 字段反序列化，任何一处类型
+	// 不匹配都会让整条请求 400（input must be string or message array）。
+	// 现改为逐元素宽松解析：能取的字段尽力取，取不到就跳过该元素，而不是整条失败。
+	switch jsonKind(raw.Input) {
+	case "string":
+		if t := jsonText(raw.Input); t != "" {
+			req.Messages = append(req.Messages, &pb.EnvelopeMessage{Role: "user", Text: t})
 		}
-		if err := json.Unmarshal(raw.Input, &items); err != nil {
-			return nil, fmt.Errorf("input must be string or message array")
+	case "array", "object":
+		items, err := responseItems(raw.Input)
+		if err != nil {
+			return nil, err
 		}
 		// 合并相邻 assistant message 与 function_call：并行调用必须归入同一条
 		// assistant 的 tool_calls。否则会退化成「N 条各带 1 个 tool_call 的 assistant」，
@@ -78,32 +79,47 @@ func parseResponsesRequest(body []byte) (*pb.ChatRequest, error) {
 			pendText, pendAssistant, pendTools = "", false, nil
 		}
 		for _, it := range items {
-			switch it.Type {
+			switch it.kind() {
 			case "message", "":
-				role := normalizeRole(it.Role)
+				role := normalizeRole(jsonText(it.Role))
+				if role == "" {
+					role = "user"
+				}
 				if role == "assistant" {
 					flushAssistant()
-					pendText, pendAssistant = extractText(it.Content), true
+					pendText, pendAssistant = jsonText(it.Content), true
 					continue
 				}
 				flushAssistant()
 				req.Messages = append(req.Messages, &pb.EnvelopeMessage{
-					Role: role, Text: extractText(it.Content),
+					Role: role, Text: jsonText(it.Content),
 				})
-			case "function_call":
-				args := it.Arguments
+			case "function_call", "custom_tool_call", "local_shell_call", "computer_call":
+				// custom_tool_call 把原始入参放在 input（如 apply_patch 的补丁文本），
+				// 信封只认 arguments 字符串，这里统一归一（非 JSON 文本会被编码成 JSON 字符串）
+				args := jsonText(it.Arguments)
 				if args == "" {
-					args = "{}" // 上游要求 arguments 是合法 JSON 文本
+					args = jsonText(it.Input)
 				}
-				pendTools = append(pendTools, &pb.ToolCall{Id: it.CallID, Name: it.Name, Arguments: args})
-			case "function_call_output":
+				pendTools = append(pendTools, &pb.ToolCall{
+					Id: jsonText(it.CallID), Name: jsonText(it.Name), Arguments: ensureJSONArgs(args),
+				})
+			case "function_call_output", "custom_tool_call_output", "local_shell_call_output":
 				flushAssistant()
 				req.Messages = append(req.Messages, &pb.EnvelopeMessage{
-					Role: "tool", Text: it.Output, ToolCallId: it.CallID,
+					Role: "tool", Text: jsonText(it.Output), ToolCallId: jsonText(it.CallID),
 				})
+			case "reasoning", "web_search_call", "item_reference":
+				// 信封里没有对应语义（推理摘要 / 内置检索调用），跳过
+			default:
+				log.Printf("[gateway] responses: 跳过不支持的 input 元素类型 %q", it.kind())
 			}
 		}
 		flushAssistant()
+	case "empty", "null":
+		// 没有 input（只有 instructions）：不补 user 消息
+	default:
+		return nil, fmt.Errorf("input must be a string or an array of items (got %s)", jsonKind(raw.Input))
 	}
 
 	for _, t := range raw.Tools {
@@ -354,4 +370,131 @@ func (a *responsesAggregate) result() map[string]interface{} {
 			"total_tokens": a.input + a.output,
 		},
 	}
+}
+// ---------- input 元素的宽松解析 ----------
+//
+// Codex / CC Switch / new-api 等客户端对 Responses input 的构造并不完全一致，
+// 严格按固定类型反序列化会把「类型不符」升级成整条请求 400。以下取值一律先看
+// 原始 JSON，再按需解析，取不到就退化为空值。
+
+// respInputItem 未类型化的 input 元素：所有字段保持原始 JSON。
+type respInputItem struct {
+	Type      json.RawMessage `json:"type"`
+	Role      json.RawMessage `json:"role"`
+	Content   json.RawMessage `json:"content"`
+	CallID    json.RawMessage `json:"call_id"`
+	Name      json.RawMessage `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+	Output    json.RawMessage `json:"output"`
+	Input     json.RawMessage `json:"input"` // custom_tool_call 的原始入参
+}
+
+func (it respInputItem) kind() string { return jsonText(it.Type) }
+
+// responseItems 把 input 归一为元素列表：数组逐元素拆，单对象视为一个元素，
+// 数组里的裸字符串当作一条 user 消息。
+func responseItems(raw json.RawMessage) ([]respInputItem, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) > 0 && trimmed[0] == '{' {
+		var one respInputItem
+		if err := json.Unmarshal(trimmed, &one); err != nil {
+			return nil, fmt.Errorf("input item is not an object: %w", err)
+		}
+		return []respInputItem{one}, nil
+	}
+	var raws []json.RawMessage
+	if err := json.Unmarshal(trimmed, &raws); err != nil {
+		return nil, fmt.Errorf("input must be a string or an array of items (got %s)", jsonKind(raw))
+	}
+	out := make([]respInputItem, 0, len(raws))
+	for _, r := range raws {
+		var one respInputItem
+		if err := json.Unmarshal(r, &one); err != nil {
+			// 裸字符串元素 → 当作一条 user 消息；其它标量跳过并留痕
+			if jsonKind(r) == "string" {
+				content, _ := json.Marshal(jsonText(r))
+				out = append(out, respInputItem{
+					Type: json.RawMessage(`"message"`), Role: json.RawMessage(`"user"`), Content: content,
+				})
+				continue
+			}
+			log.Printf("[gateway] responses: 跳过无法解析的 input 元素（%s）: %.200s", jsonKind(r), r)
+		}
+		out = append(out, one)
+	}
+	return out, nil
+}
+
+// jsonKind 返回 JSON 值的类型名，用于容错分支与错误信息。
+func jsonKind(raw json.RawMessage) string {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return "empty"
+	}
+	switch trimmed[0] {
+	case '"':
+		return "string"
+	case '[':
+		return "array"
+	case '{':
+		return "object"
+	case 't', 'f':
+		return "boolean"
+	case 'n':
+		return "null"
+	default:
+		return "number"
+	}
+}
+
+// jsonText 从任意 JSON 值里尽力提取文本：
+// 字符串直接取；内容块数组递归拼接 text 字段；对象取 text 字段；其余原样返回压缩 JSON。
+func jsonText(raw json.RawMessage) string {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		return ""
+	}
+	switch trimmed[0] {
+	case '"':
+		var s string
+		if json.Unmarshal(trimmed, &s) == nil {
+			return s
+		}
+	case '[':
+		var elems []json.RawMessage
+		if json.Unmarshal(trimmed, &elems) == nil {
+			texts := make([]string, 0, len(elems))
+			for _, e := range elems {
+				if t := jsonText(e); t != "" {
+					texts = append(texts, t)
+				}
+			}
+			return strings.Join(texts, "\n")
+		}
+	case '{':
+		var obj struct {
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(trimmed, &obj) == nil && obj.Text != "" {
+			return obj.Text
+		}
+	}
+	return string(trimmed)
+}
+
+// ensureJSONArgs 保证工具调用入参是合法 JSON 文本（上游要求）：
+// 已是 JSON 原样保留；否则把原始文本编码成 JSON 字符串；空值给 {}。
+func ensureJSONArgs(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "{}"
+	}
+	if json.Valid([]byte(s)) {
+		return s
+	}
+	b, err := json.Marshal(s)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
 }

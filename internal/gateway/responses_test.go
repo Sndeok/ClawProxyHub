@@ -188,3 +188,118 @@ func TestResponsesAggregate(t *testing.T) {
 		t.Errorf("aggregate usage wrong: %s", b)
 	}
 }
+
+// ---------- 宽松解析回归（此前任何一种形状都会让整条请求 400）----------
+
+// TestParseResponsesInputShapesTolerant 覆盖各客户端对 input 字段的类型差异。
+// 事故背景：Codex（经 CC Switch / new-api）在工具调用后的历史里，
+// function_call_output.output 是内容块数组而非字符串，旧实现用固定 string
+// 反序列化整个数组，直接 400「input must be string or message array」。
+func TestParseResponsesInputShapesTolerant(t *testing.T) {
+	cases := []struct {
+		name      string
+		body      string
+		wantMsgs  int
+		checkFunc func(t *testing.T, req *pb.ChatRequest)
+	}{
+		{
+			name: "output 为内容块数组（CC Switch / Codex 实际形状）",
+			body: `{"model":"m","input":[
+				{"type":"message","role":"user","content":[{"type":"input_text","text":"查一下"}]},
+				{"type":"function_call","call_id":"c1","name":"fetch_url","arguments":"{\"url\":\"https://a\"}"},
+				{"type":"function_call_output","call_id":"c1","output":[{"type":"input_text","text":"页面内容"}]}
+			]}`,
+			wantMsgs: 3,
+			checkFunc: func(t *testing.T, req *pb.ChatRequest) {
+				if req.Messages[2].Role != "tool" || req.Messages[2].Text != "页面内容" {
+					t.Errorf("内容块数组未提取为工具结果: %+v", req.Messages[2])
+				}
+			},
+		},
+		{
+			name: "arguments 是对象而非字符串",
+			body: `{"model":"m","input":[
+				{"type":"function_call","call_id":"c1","name":"f","arguments":{"url":"https://a"}}
+			]}`,
+			wantMsgs: 1,
+			checkFunc: func(t *testing.T, req *pb.ChatRequest) {
+				if got := req.Messages[0].ToolCalls[0].Arguments; got != `{"url":"https://a"}` {
+					t.Errorf("对象型 arguments 未归一为 JSON 文本: %q", got)
+				}
+			},
+		},
+		{
+			name:     "input 是单个对象",
+			body:     `{"model":"m","input":{"type":"message","role":"user","content":"你好"}}`,
+			wantMsgs: 1,
+		},
+		{
+			name:     "数组里混入裸字符串元素",
+			body:     `{"model":"m","input":["直接一段话",{"type":"message","role":"user","content":"第二句"}]}`,
+			wantMsgs: 2,
+			checkFunc: func(t *testing.T, req *pb.ChatRequest) {
+				if req.Messages[0].Role != "user" || req.Messages[0].Text != "直接一段话" {
+					t.Errorf("裸字符串元素应成为 user 消息: %+v", req.Messages[0])
+				}
+			},
+		},
+		{
+			name: "custom_tool_call（apply_patch 补丁文本放在 input）",
+			body: `{"model":"m","input":[
+				{"type":"custom_tool_call","call_id":"c9","name":"apply_patch","input":"*** Begin Patch\n*** End Patch"},
+				{"type":"custom_tool_call_output","call_id":"c9","output":"Done!"}
+			]}`,
+			wantMsgs: 2,
+			checkFunc: func(t *testing.T, req *pb.ChatRequest) {
+				tc := req.Messages[0].ToolCalls[0]
+				if tc.Name != "apply_patch" || !json.Valid([]byte(tc.Arguments)) {
+					t.Errorf("补丁文本应编码为合法 JSON 字符串: %+v", tc)
+				}
+				if req.Messages[1].Role != "tool" || req.Messages[1].ToolCallId != "c9" {
+					t.Errorf("custom_tool_call_output 未转为 tool 消息: %+v", req.Messages[1])
+				}
+			},
+		},
+		{
+			name:     "reasoning / web_search_call 元素应被跳过而不是报错",
+			body:     `{"model":"m","input":[{"type":"reasoning","summary":[]},{"type":"web_search_call","id":"ws1"},{"type":"message","role":"user","content":"hi"}]}`,
+			wantMsgs: 1,
+		},
+		{
+			name:     "input 为 null 不报错",
+			body:     `{"model":"m","input":null}`,
+			wantMsgs: 0,
+		},
+		{
+			name:     "缺 instructions 之外的 input 字段",
+			body:     `{"model":"m","instructions":"sys"}`,
+			wantMsgs: 1,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req, err := parseResponsesRequest([]byte(c.body))
+			if err != nil {
+				t.Fatalf("不应报错: %v", err)
+			}
+			if len(req.Messages) != c.wantMsgs {
+				t.Fatalf("want %d messages, got %d: %+v", c.wantMsgs, len(req.Messages), req.Messages)
+			}
+			if c.checkFunc != nil {
+				c.checkFunc(t, req)
+			}
+		})
+	}
+}
+
+// TestParseResponsesInputTrulyInvalid 真正无法处理的 input 才报错，且错误信息
+// 要带上实际收到的 JSON 类型，便于直接定位。
+func TestParseResponsesInputTrulyInvalid(t *testing.T) {
+	_, err := parseResponsesRequest([]byte(`{"model":"m","input":123}`))
+	if err == nil {
+		t.Fatal("标量 input 应当报错")
+	}
+	if !strings.Contains(err.Error(), "number") {
+		t.Errorf("错误信息应说明实际类型: %v", err)
+	}
+}
