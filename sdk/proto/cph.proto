@@ -197,6 +197,9 @@ message EnvelopeMessage {
   repeated ToolCall tool_calls = 3; // assistant 消息携带的工具调用
   string tool_call_id = 4;      // role=tool 时的调用 id
   bytes raw = 5;                // 原始消息 JSON，插件需要细节时自取
+  // 规范化后的多模态 content 数组 JSON（OpenAI Chat 风格）。
+  // 空值表示纯文本，老插件忽略此字段仍可正常工作；新插件适配器优先使用它。
+  bytes content_json = 6;
 }
 
 message ToolDefinition {

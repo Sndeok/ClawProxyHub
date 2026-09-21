@@ -97,11 +97,11 @@ func TestParserToolCalls(t *testing.T) {
 	}
 	if toolEvents[1].ArgumentsDelta != `"more"` {
 		t.Errorf("second tool delta wrong: %+v", toolEvents[1])
-	// 后续 arguments 增量必须补齐同一个 id/name：核心按 id 分组，空 id 会被
-	// 当成新调用开新块，客户端最终拿到残缺的 tool_calls（工具不执行）。
-	if toolEvents[1].Id != "call_1" || toolEvents[1].Name != "f" {
-		t.Errorf("continuation delta must keep id/name, got %+v", toolEvents[1])
-	}
+		// 后续 arguments 增量必须补齐同一个 id/name：核心按 id 分组，空 id 会被
+		// 当成新调用开新块，客户端最终拿到残缺的 tool_calls（工具不执行）。
+		if toolEvents[1].Id != "call_1" || toolEvents[1].Name != "f" {
+			t.Errorf("continuation delta must keep id/name, got %+v", toolEvents[1])
+		}
 	}
 	if finish == nil || finish.FinishReason != "tool_calls" {
 		t.Errorf("finish wrong: %+v", finish)
@@ -117,5 +117,19 @@ func TestParserEmptyStreamFallback(t *testing.T) {
 	fin, ok := events[0].Event.(*pb.StreamEvent_MessageFinish)
 	if !ok || fin.MessageFinish.FinishReason != "stop" {
 		t.Errorf("fallback finish wrong: %+v", events[0])
+	}
+}
+func TestChatBodyUsesMultimodalContentJSON(t *testing.T) {
+	req := &pb.ChatRequest{Messages: []*pb.EnvelopeMessage{{
+		Role: "user", Text: "看图", ContentJson: []byte(`[{"type":"text","text":"看图"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AA=="}}]`),
+	}}}
+	body := ChatBody(req)
+	messages := body["messages"].([]map[string]interface{})
+	content, ok := messages[0]["content"].([]interface{})
+	if !ok || len(content) != 2 {
+		t.Fatalf("expected two multimodal content parts, got %#v", messages[0]["content"])
+	}
+	if content[1].(map[string]interface{})["type"] != "image_url" {
+		t.Fatalf("second part is not image_url: %#v", content[1])
 	}
 }

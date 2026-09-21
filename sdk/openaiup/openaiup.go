@@ -15,9 +15,13 @@ import (
 func ChatBody(req *pb.ChatRequest) map[string]interface{} {
 	var messages []map[string]interface{}
 	for _, m := range req.Messages {
-		msg := map[string]interface{}{"role": m.Role, "content": m.Text}
+		content := interface{}(m.Text)
+		if len(m.ContentJson) > 0 {
+			content = rawJSON(string(m.ContentJson))
+		}
+		msg := map[string]interface{}{"role": m.Role, "content": content}
 		if len(m.ToolCalls) > 0 {
-			if m.Role == "assistant" {
+			if m.Role == "assistant" && len(m.ContentJson) == 0 {
 				msg["content"] = nilIfEmpty(m.Text)
 				var tcs []map[string]interface{}
 				for _, tc := range m.ToolCalls {

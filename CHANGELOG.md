@@ -1,5 +1,18 @@
 # Changelog
 
+## 多模态 Responses / Chat / Anthropic 内容贯通（2026-09-21）
+
+- Added `EnvelopeMessage.content_json` protobuf 字段（向后兼容，不升 `ProtocolVersion`）：
+  统一承载规范化后的 OpenAI Chat 风格 content-part 数组；旧插件忽略未知字段，纯文本链路不变。
+- Added Responses / OpenAI Chat / Anthropic Messages 的内容块归一化：
+  `input_image` / `image`、`input_file` / `document`、`input_audio`、`input_video`、
+  `image_url`、`file` 等内容保留，不再只拼成 `Text`。
+- Added SDK 适配器多模态输出：`sdk/openaiup` 优先发送 content 数组；`sdk/anthropicup`
+  把图片/文件 data URL 转成 Anthropic `image` / `document` block。老插件可继续接收纯文本，
+  新版插件 0.1.2 已重新构建。
+- Added 多模态回归测试：网关解析、protobuf round-trip、OpenAI Chat 适配、Anthropic 适配。
+- Published `lobsterai v0.1.2` / `workbuddy v0.1.2`，插件仓库 CI 对着本 fork 的核心 SDK 重建发布。
+
 ## 移植上游 v1.0.2 / v1.0.3（B+C+D 批）
 
 上游 6 个提交经逐条比对后**选择性移植**（未采用 git merge，原因见文末）。

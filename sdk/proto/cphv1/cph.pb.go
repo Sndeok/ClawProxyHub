@@ -432,11 +432,9 @@ type AuthMethod struct {
 	Fields       []*AuthField           `protobuf:"bytes,3,rep,name=fields,proto3" json:"fields,omitempty"`             // 表单字段（前端据此渲染）
 	Capabilities []string               `protobuf:"bytes,4,rep,name=capabilities,proto3" json:"capabilities,omitempty"` // refreshable / auto_relogin / profile
 	// 浏览器授权的回调形态，前端据此决定渲染与轮询：
-	//
-	//	auto      — 插件自动接收回调，前端只轮询，不显示输入框
-	//	wait      — 用户手动粘贴回调地址（服务器部署）
-	//	auto_wait — 前端检测管理界面是否本机访问：本机按 auto，否则按 wait
-	//
+	//   auto      — 插件自动接收回调，前端只轮询，不显示输入框
+	//   wait      — 用户手动粘贴回调地址（服务器部署）
+	//   auto_wait — 前端检测管理界面是否本机访问：本机按 auto，否则按 wait
 	// 空 = 按 next.wait + next.fields 推断（wait 且有 fields 显示输入框）
 	Callback      string `protobuf:"bytes,5,opt,name=callback,proto3" json:"callback,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -1426,12 +1424,15 @@ func (x *ChatRequest) GetSource() string {
 }
 
 type EnvelopeMessage struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Role          string                 `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`                                 // system / user / assistant / tool
-	Text          string                 `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`                                 // 文本内容（content block type=text 的拼接）
-	ToolCalls     []*ToolCall            `protobuf:"bytes,3,rep,name=tool_calls,json=toolCalls,proto3" json:"tool_calls,omitempty"`      // assistant 消息携带的工具调用
-	ToolCallId    string                 `protobuf:"bytes,4,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"` // role=tool 时的调用 id
-	Raw           []byte                 `protobuf:"bytes,5,opt,name=raw,proto3" json:"raw,omitempty"`                                   // 原始消息 JSON，插件需要细节时自取
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Role       string                 `protobuf:"bytes,1,opt,name=role,proto3" json:"role,omitempty"`                                 // system / user / assistant / tool
+	Text       string                 `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`                                 // 文本内容（content block type=text 的拼接）
+	ToolCalls  []*ToolCall            `protobuf:"bytes,3,rep,name=tool_calls,json=toolCalls,proto3" json:"tool_calls,omitempty"`      // assistant 消息携带的工具调用
+	ToolCallId string                 `protobuf:"bytes,4,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"` // role=tool 时的调用 id
+	Raw        []byte                 `protobuf:"bytes,5,opt,name=raw,proto3" json:"raw,omitempty"`                                   // 原始消息 JSON，插件需要细节时自取
+	// 规范化后的多模态 content 数组 JSON（OpenAI Chat 风格）。
+	// 空值表示纯文本，老插件忽略此字段仍可正常工作；新插件适配器优先使用它。
+	ContentJson   []byte `protobuf:"bytes,6,opt,name=content_json,json=contentJson,proto3" json:"content_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1497,6 +1498,13 @@ func (x *EnvelopeMessage) GetToolCallId() string {
 func (x *EnvelopeMessage) GetRaw() []byte {
 	if x != nil {
 		return x.Raw
+	}
+	return nil
+}
+
+func (x *EnvelopeMessage) GetContentJson() []byte {
+	if x != nil {
+		return x.ContentJson
 	}
 	return nil
 }
@@ -2943,7 +2951,7 @@ const file_sdk_proto_cph_proto_rawDesc = "" +
 	"\n" +
 	"ExtraEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x9e\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc1\x01\n" +
 	"\x0fEnvelopeMessage\x12\x12\n" +
 	"\x04role\x18\x01 \x01(\tR\x04role\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12/\n" +
@@ -2951,7 +2959,8 @@ const file_sdk_proto_cph_proto_rawDesc = "" +
 	"tool_calls\x18\x03 \x03(\v2\x10.cph.v1.ToolCallR\ttoolCalls\x12 \n" +
 	"\ftool_call_id\x18\x04 \x01(\tR\n" +
 	"toolCallId\x12\x10\n" +
-	"\x03raw\x18\x05 \x01(\fR\x03raw\"s\n" +
+	"\x03raw\x18\x05 \x01(\fR\x03raw\x12!\n" +
+	"\fcontent_json\x18\x06 \x01(\fR\vcontentJson\"s\n" +
 	"\x0eToolDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12+\n" +

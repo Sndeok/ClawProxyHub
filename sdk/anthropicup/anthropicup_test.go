@@ -78,3 +78,22 @@ func mustJSON(v interface{}) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+func TestChatBodyUsesMultimodalContentJSON(t *testing.T) {
+	req := &pb.ChatRequest{Messages: []*pb.EnvelopeMessage{{
+		Role: "user", Text: "看图", ContentJson: []byte(`[{"type":"text","text":"看图"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AA=="}}]`),
+	}}}
+	body := ChatBody(req)
+	messages := body["messages"].([]map[string]interface{})
+	blocks := messages[0]["content"].([]interface{})
+	if len(blocks) != 2 {
+		t.Fatalf("expected two Anthropic content blocks, got %#v", blocks)
+	}
+	image := blocks[1].(map[string]interface{})
+	if image["type"] != "image" {
+		t.Fatalf("second block is not image: %#v", image)
+	}
+	source := image["source"].(map[string]interface{})
+	if source["type"] != "base64" || source["media_type"] != "image/png" {
+		t.Fatalf("image source not normalized: %#v", source)
+	}
+}

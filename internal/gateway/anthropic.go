@@ -91,12 +91,13 @@ type anthTool struct {
 func convertAnthMessage(m *anthMessage) []*pb.EnvelopeMessage {
 	// 纯文本 content
 	if text := extractText(m.Content); text != "" && !isArray(m.Content) {
-		return []*pb.EnvelopeMessage{{Role: m.Role, Text: text, Raw: m.Content}}
+		return []*pb.EnvelopeMessage{{Role: m.Role, Text: text, Raw: m.Content, ContentJson: normalizeAnthropicContent(m.Content)}}
 	}
 
 	var out []*pb.EnvelopeMessage
 	var assistantToolCalls []*pb.ToolCall
 	var blockTexts []string
+	var hasContentBlocks bool
 
 	var blocks []struct {
 		Type      string          `json:"type"`
@@ -108,13 +109,17 @@ func convertAnthMessage(m *anthMessage) []*pb.EnvelopeMessage {
 		Content   json.RawMessage `json:"content"`
 	}
 	if err := json.Unmarshal(m.Content, &blocks); err != nil {
-		return []*pb.EnvelopeMessage{{Role: m.Role, Raw: m.Content}}
+		return []*pb.EnvelopeMessage{{Role: m.Role, Raw: m.Content, ContentJson: normalizeAnthropicContent(m.Content)}}
 	}
 
 	for _, b := range blocks {
 		switch b.Type {
 		case "text":
 			blockTexts = append(blockTexts, b.Text)
+			hasContentBlocks = true
+		case "image", "document", "input_image", "input_file", "input_audio", "input_video", "video_url":
+			// 保留原始 block，稍后由 normalizeAnthropicContent 归一化到 ContentJson。
+			hasContentBlocks = true
 		case "tool_use":
 			assistantToolCalls = append(assistantToolCalls, &pb.ToolCall{
 				Id: b.ID, Name: b.Name, Arguments: compactJSON(b.Input),
@@ -122,6 +127,7 @@ func convertAnthMessage(m *anthMessage) []*pb.EnvelopeMessage {
 		case "tool_result":
 			out = append(out, &pb.EnvelopeMessage{
 				Role: "tool", Text: extractText(b.Content), ToolCallId: b.ToolUseID,
+				ContentJson: normalizeAnthropicContent(b.Content),
 			})
 		}
 	}
@@ -130,10 +136,13 @@ func convertAnthMessage(m *anthMessage) []*pb.EnvelopeMessage {
 		out = append(out, &pb.EnvelopeMessage{
 			Role: "assistant", Text: joinTexts(blockTexts), ToolCalls: assistantToolCalls,
 			Raw: m.Content,
+			// tool_use 块已单独进入 ToolCalls，避免在 content 中重复发送；
+			// 纯文本/多模态 assistant 内容仍由 Text 兼容发送。
 		})
-	} else if len(blockTexts) > 0 {
+	} else if hasContentBlocks || len(blockTexts) > 0 {
 		out = append(out, &pb.EnvelopeMessage{
 			Role: m.Role, Text: joinTexts(blockTexts), Raw: m.Content,
+			ContentJson: normalizeAnthropicContent(m.Content),
 		})
 	}
 	return out

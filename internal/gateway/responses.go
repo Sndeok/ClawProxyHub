@@ -67,6 +67,7 @@ func parseResponsesRequest(body []byte) (*pb.ChatRequest, error) {
 		// assistant 的 tool_calls。否则会退化成「N 条各带 1 个 tool_call 的 assistant」，
 		// 随后的 tool 消息与声明它的 assistant 错位，上游直接拒绝。
 		var pendText string
+		var pendContent []byte
 		var pendAssistant bool
 		var pendTools []*pb.ToolCall
 		flushAssistant := func() {
@@ -74,9 +75,9 @@ func parseResponsesRequest(body []byte) (*pb.ChatRequest, error) {
 				return
 			}
 			req.Messages = append(req.Messages, &pb.EnvelopeMessage{
-				Role: "assistant", Text: pendText, ToolCalls: pendTools,
+				Role: "assistant", Text: pendText, ToolCalls: pendTools, ContentJson: pendContent,
 			})
-			pendText, pendAssistant, pendTools = "", false, nil
+			pendText, pendContent, pendAssistant, pendTools = "", nil, false, nil
 		}
 		for _, it := range items {
 			switch it.kind() {
@@ -87,12 +88,12 @@ func parseResponsesRequest(body []byte) (*pb.ChatRequest, error) {
 				}
 				if role == "assistant" {
 					flushAssistant()
-					pendText, pendAssistant = jsonText(it.Content), true
+					pendText, pendContent, pendAssistant = jsonText(it.Content), normalizeResponsesContent(it.Content), true
 					continue
 				}
 				flushAssistant()
 				req.Messages = append(req.Messages, &pb.EnvelopeMessage{
-					Role: role, Text: jsonText(it.Content),
+					Role: role, Text: jsonText(it.Content), ContentJson: normalizeResponsesContent(it.Content),
 				})
 			case "function_call", "custom_tool_call", "local_shell_call", "computer_call":
 				// custom_tool_call 把原始入参放在 input（如 apply_patch 的补丁文本），
@@ -108,6 +109,7 @@ func parseResponsesRequest(body []byte) (*pb.ChatRequest, error) {
 				flushAssistant()
 				req.Messages = append(req.Messages, &pb.EnvelopeMessage{
 					Role: "tool", Text: jsonText(it.Output), ToolCallId: jsonText(it.CallID),
+					ContentJson: normalizeResponsesContent(it.Output),
 				})
 			case "reasoning", "web_search_call", "item_reference":
 				// 信封里没有对应语义（推理摘要 / 内置检索调用），跳过
@@ -371,6 +373,7 @@ func (a *responsesAggregate) result() map[string]interface{} {
 		},
 	}
 }
+
 // ---------- input 元素的宽松解析 ----------
 //
 // Codex / CC Switch / new-api 等客户端对 Responses input 的构造并不完全一致，

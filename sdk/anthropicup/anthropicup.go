@@ -2,6 +2,7 @@
 package anthropicup
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 
@@ -17,17 +18,21 @@ func ChatBody(req *pb.ChatRequest) map[string]interface{} {
 		case m.Role == "system":
 			system += m.Text
 		case m.Role == "tool":
-			// 工具结果以 tool_result 块包进 user 消息
+			// 工具结果以 tool_result 块包进 user 消息；多模态工具输出保留 content blocks。
+			resultContent := interface{}(m.Text)
+			if len(m.ContentJson) > 0 {
+				resultContent = anthropicContent(m.ContentJson, m.Text)
+			}
 			messages = append(messages, map[string]interface{}{
 				"role": "user",
 				"content": []interface{}{map[string]interface{}{
-					"type": "tool_result", "tool_use_id": m.ToolCallId, "content": m.Text,
+					"type": "tool_result", "tool_use_id": m.ToolCallId, "content": resultContent,
 				}},
 			})
 		case m.Role == "assistant" && len(m.ToolCalls) > 0:
-			var blocks []interface{}
-			if m.Text != "" {
-				blocks = append(blocks, map[string]interface{}{"type": "text", "text": m.Text})
+			blocks := anthropicContent(m.ContentJson, m.Text)
+			if len(m.ContentJson) == 0 && m.Text == "" {
+				blocks = nil
 			}
 			for _, tc := range m.ToolCalls {
 				blocks = append(blocks, map[string]interface{}{
@@ -39,7 +44,7 @@ func ChatBody(req *pb.ChatRequest) map[string]interface{} {
 		default:
 			messages = append(messages, map[string]interface{}{
 				"role":    m.Role,
-				"content": []interface{}{map[string]interface{}{"type": "text", "text": m.Text}},
+				"content": anthropicContent(m.ContentJson, m.Text),
 			})
 		}
 	}
@@ -76,6 +81,100 @@ func ChatBody(req *pb.ChatRequest) map[string]interface{} {
 		body["temperature"] = req.Temperature
 	}
 	return body
+}
+
+// anthropicContent 把 OpenAI 风格的 content_json 转成 Anthropic content blocks。
+// 纯文本/老插件路径仍返回单个 text block；未知类型原样保留，避免静默丢数据。
+func anthropicContent(raw []byte, fallback string) []interface{} {
+	if len(raw) == 0 {
+		return []interface{}{map[string]interface{}{"type": "text", "text": fallback}}
+	}
+	var parts []map[string]interface{}
+	if json.Unmarshal(raw, &parts) != nil || len(parts) == 0 {
+		return []interface{}{map[string]interface{}{"type": "text", "text": fallback}}
+	}
+	out := make([]interface{}, 0, len(parts))
+	for _, p := range parts {
+		switch p["type"] {
+		case "text", "input_text", "output_text":
+			out = append(out, map[string]interface{}{"type": "text", "text": stringValue(p["text"])})
+		case "image_url":
+			url := ""
+			if v, ok := p["image_url"].(map[string]interface{}); ok {
+				url = stringValue(v["url"])
+			} else {
+				url = stringValue(p["image_url"])
+			}
+			out = append(out, anthropicImageBlock(url))
+		case "file":
+			out = append(out, anthropicFileBlock(p["file"]))
+		default:
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func anthropicImageBlock(url string) map[string]interface{} {
+	if strings.HasPrefix(url, "data:") {
+		header, data := splitDataURL(url)
+		return map[string]interface{}{"type": "image", "source": map[string]interface{}{
+			"type": "base64", "media_type": header, "data": data,
+		}}
+	}
+	return map[string]interface{}{"type": "image", "source": map[string]interface{}{
+		"type": "url", "url": url,
+	}}
+}
+
+func anthropicFileBlock(value interface{}) map[string]interface{} {
+	file, _ := value.(map[string]interface{})
+	data := stringValue(file["file_data"])
+	if data == "" {
+		data = stringValue(file["data"])
+	}
+	if strings.HasPrefix(data, "data:") {
+		media, encoded := splitDataURL(data)
+		return map[string]interface{}{"type": "document", "source": map[string]interface{}{
+			"type": "base64", "media_type": media, "data": encoded,
+		}}
+	}
+	if url := stringValue(file["file_url"]); url != "" {
+		return map[string]interface{}{"type": "document", "source": map[string]interface{}{
+			"type": "url", "url": url,
+		}}
+	}
+	return map[string]interface{}{"type": "document", "source": map[string]interface{}{
+		"type": "text", "media_type": "text/plain", "data": data,
+	}}
+}
+
+func splitDataURL(raw string) (media, data string) {
+	const prefix = "data:"
+	if !strings.HasPrefix(raw, prefix) {
+		return "application/octet-stream", raw
+	}
+	parts := strings.SplitN(strings.TrimPrefix(raw, prefix), ",", 2)
+	if len(parts) != 2 {
+		return "application/octet-stream", raw
+	}
+	media = strings.TrimSuffix(parts[0], ";base64")
+	data = parts[1]
+	if decoded, err := base64.StdEncoding.DecodeString(data); err == nil {
+		data = base64.StdEncoding.EncodeToString(decoded)
+	}
+	return media, data
+}
+
+func stringValue(value interface{}) string {
+	if s, ok := value.(string); ok {
+		return s
+	}
+	if value == nil {
+		return ""
+	}
+	b, _ := json.Marshal(value)
+	return string(b)
 }
 
 // Parser 把上游 Anthropic SSE 行解析为信封事件。
