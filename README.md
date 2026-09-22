@@ -1,6 +1,18 @@
+> ## ⚠️ 本仓库已废弃（DEPRECATED）
+>
+> 这里是最早的 **Vue 3 + TDesign** 版本，只保留历史参考，**不再接收功能更新与修复**。
+>
+> 请改用新仓库 👉 **[Sndeok/ClawProxyHub-Next](https://github.com/Sndeok/ClawProxyHub-Next)**
+>
+> 新仓库包含：Next.js 重构前端、账号新增向导、路由/账号编辑弹窗、移动端适配、
+> Codex/new-api 协议兼容修复（错误帧、参数透传、缓存写入 token 统计），Docker 部署方式一致。
+>
+> This repository is **deprecated** and kept for historical reference only. Use
+> [Sndeok/ClawProxyHub-Next](https://github.com/Sndeok/ClawProxyHub-Next) instead.
+
 <div align="center">
 
-# ClawProxyHub-Next
+# ClawProxyHub（旧版，已废弃）
 
 **把官方 AI 桌面客户端，变成你自己的 OpenAI 兼容网关**
 
